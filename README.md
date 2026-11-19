@@ -19,5 +19,5 @@ Otwórz `http://localhost:8080/` (ekran główny), a graczy w kolejnych kartach 
 
 ## Testy
 
-- Silnik i protokół: `node --test worker/test/` (CI) albo `worker/test/run.html` w przeglądarce.
+- Silnik i protokół: `node --test worker/test/engine.test.js` (CI) albo `worker/test/run.html` w przeglądarce.
 - Pełne gry przez interfejs: `http://localhost:8080/dev/e2e.html?n=7&games=2`.

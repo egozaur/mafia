@@ -23,5 +23,5 @@ Always respond to the user in Polish (zawsze odpowiadaj po polsku). UI text and 
 
 ## Testing
 
-- Engine + room protocol: `worker/test/suite.js`, `worker/test/room.suite.js`. CI runs `node --test worker/test/`. Locally open `worker/test/run.html` in headless Edge with `--allow-file-access-from-files` (prints `RESULT:PASS`).
+- Engine + room protocol: `worker/test/suite.js`, `worker/test/room.suite.js`. CI runs `node --test worker/test/engine.test.js`. Locally open `worker/test/run.html` in headless Edge with `--allow-file-access-from-files` (prints `RESULT:PASS`).
 - End-to-end UI: start `dev/serve.ps1` (PowerShell static server, keep it ASCII-only — PS 5.1 reads it as ANSI), open `http://localhost:8080/dev/e2e.html?n=7&games=2`. It drives the real buttons in iframes (host + N phones), plays full games and checks the DOM for role leaks. Run it in **real time** (headless Edge with `--enable-logging=stderr`, read `E2E RESULT`), not with `--virtual-time-budget`: virtual time skews the page clocks against the SharedWorker and gives false timeouts. `?stopAt=<phase>&view=host|phone` freezes on a phase for screenshots.
