@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Mafia · podgląd testowy</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="../css/theme.css">
+<style>
+  body { overflow: hidden; }
+  .bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--gold-dim); }
+  .bar h1 { font: 600 22px/1 var(--serif); margin: 0 8px 0 0; }
+  .bar label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  .bar select { background: #17140F; border: 1px solid var(--gold-line); border-radius: 8px; padding: 6px 8px; color: var(--text); }
+  .bar .grow { flex: 1; }
+  .bar .hint { font-size: 12px; color: var(--faint); max-width: 420px; }
+  .wrap { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); height: calc(100vh - 58px); }
+  .tv { border-right: 1px solid var(--gold-dim); position: relative; }
+  .tv iframe { width: 100%; height: 100%; border: 0; display: block; }
+  .phones { overflow-y: auto; padding: 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 12px; align-content: start; }
+  .ph { position: relative; height: 420px; border-radius: 18px; border: 1px solid var(--gold-dim); overflow: hidden; background: #000; }
+  .ph.mine { border-color: var(--gold-hi); box-shadow: 0 0 0 1px var(--gold), 0 0 30px -8px rgba(201, 168, 92, .6); }
+  .ph .lbl { position: absolute; z-index: 2; left: 8px; bottom: 8px; font: 600 10px/1 var(--mono); letter-spacing: .14em; color: var(--muted); background: rgba(0, 0, 0, .6); padding: 4px 6px; border-radius: 5px; pointer-events: none; }
+  .ph.mine .lbl { color: var(--bg); background: var(--gold); }
+  /* telefon renderowany w rozmiarze 390×800 i pomniejszony */
+  .ph iframe { position: absolute; left: 0; top: 0; width: 390px; height: 800px; border: 0; transform-origin: 0 0; transform: scale(var(--k, .5)); }
+  .ph .zoom { position: absolute; z-index: 2; right: 6px; bottom: 6px; width: 32px; height: 32px; }
+  .ph.big { position: fixed; z-index: 50; right: 16px; top: 70px; width: 390px; height: calc(100vh - 86px); max-height: 800px; }
+  .ph.big iframe { transform: none; }
+  @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; grid-template-rows: 55vh auto; height: auto; } body { overflow: auto; } }
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>Podgląd testowy</h1>
+  <label>Graczy <select id="n"></select></label>
+  <button class="btn small" id="new">Nowa gra testowa</button>
+  <button class="btn ghost small" id="move">Ruch botów</button>
+  <label><input type="checkbox" id="auto"> Boty grają same</label>
+  <label><input type="checkbox" id="autotv"> TV też automatycznie</label>
+  <label>Twój telefon <select id="mine"><option value="">— brak —</option></select></label>
+  <span class="grow"></span>
+  <span class="hint">Tryb lokalny: wszystko działa w tej przeglądarce, bez serwera. Ekranem TV sterujesz sam, boty grają telefonami (oprócz „Twojego”).</span>
+</div>
+<div class="wrap">
+  <div class="tv"><iframe id="tv" title="Ekran główny"></iframe></div>
+  <div class="phones" id="phones"></div>
+</div>
+<div class="toast" id="msg"></div>
+<script type="module">
+const $ = s => document.querySelector(s);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const tv = $('#tv');
+const phonesEl = $('#phones');
+let phones = [];
+let busy = false;
+
+for (let i = 5; i <= 16; i++) $('#n').insertAdjacentHTML('beforeend', `<option ${i === 7 ? 'selected' : ''}>${i}</option>`);
+
+function say(t) { const m = $('#msg'); m.textContent = t; m.classList.add('on'); clearTimeout(say.t); say.t = setTimeout(() => m.classList.remove('on'), 2600); }
+const D = f => f.contentDocument;
+const dbg = f => { try { return f.contentWindow.mafiaDebug && f.contentWindow.mafiaDebug(); } catch { return null; } };
+const view = f => (dbg(f) || {}).view;
+async function until(fn, ms = 15000) { const t0 = Date.now(); for (;;) { let r; try { r = fn(); } catch { r = null; } if (r) return r; if (Date.now() - t0 > ms) throw new Error('Przekroczono czas oczekiwania'); await sleep(60); } }
+const pickRandom = a => a[Math.floor(Math.random() * a.length)];
+
+function scalePhones() {
+  for (const p of phones) {
+    const box = p.box;
+    if (box.classList.contains('big')) continue;
+    box.style.setProperty('--k', (box.clientWidth / 390).toFixed(3));
+    box.style.height = Math.round(box.clientWidth * 800 / 390) + 'px';
+  }
+}
+addEventListener('resize', scalePhones);
+
+async function newGame() {
+  const n = +$('#n').value;
+  phones = [];
+  phonesEl.innerHTML = '';
+  $('#mine').innerHTML = '<option value="">— brak —</option>';
+  try { localStorage.removeItem('mafia_host_local'); } catch {}
+  tv.src = '../index.html?local=1&t=' + Date.now();
+  await until(() => D(tv).querySelector('[data-act="newroom-now"]'));
+  D(tv).querySelector('[data-act="newroom-now"]').click();
+  const code = await until(() => view(tv) && view(tv).code);
+  for (let i = 0; i < n; i++) {
+    const box = document.createElement('div');
+    box.className = 'ph';
+    box.innerHTML = `<span class="lbl">TELEFON ${String(i + 1).padStart(2, '0')}</span><button class="icon-btn zoom" title="Powiększ" aria-label="Powiększ telefon">⤢</button>`;
+    const f = document.createElement('iframe');
+    f.title = 'Telefon ' + (i + 1);
+    f.src = `../play.html?r=${code}&local=1&slot=${i}`;
+    box.append(f);
+    phonesEl.append(box);
+    box.querySelector('.zoom').onclick = () => { box.classList.toggle('big'); scalePhones(); };
+    phones.push({ f, box, i });
+    $('#mine').insertAdjacentHTML('beforeend', `<option value="${i}">Telefon ${String(i + 1).padStart(2, '0')}</option>`);
+  }
+  scalePhones();
+  const names = ['Ania', 'Bartek', 'Celina', 'Darek', 'Ela', 'Filip', 'Gosia', 'Henryk', 'Iza', 'Jacek', 'Kasia', 'Leon', 'Magda', 'Norbert', 'Ola', 'Piotr'];
+  for (const p of phones) {
+    const form = await until(() => D(p.f).querySelector('form[data-form="join"]'));
+    form.querySelector('input[name="name"]').value = names[p.i];
+    form.requestSubmit();
+    await until(() => view(p.f) && view(p.f).me);
+  }
+  say(`Pokój ${code}: dołączyło ${n} graczy. Kliknij „Rozpocznij grę” na ekranie TV.`);
+}
+
+// Jeden ruch każdego bota w bieżącej fazie (klika prawdziwe przyciski na telefonach).
+async function botMove() {
+  if (busy) return;
+  busy = true;
+  try {
+    const mine = $('#mine').value;
+    for (const p of phones) {
+      if (String(p.i) === mine) continue;
+      const v = view(p.f);
+      if (!v || !v.me || v.paused) continue;
+      const doc = D(p.f);
+      const click = sel => { const el = doc.querySelector(sel); if (el && !el.disabled) { el.click(); return true; } return false; };
+      if (click('[data-act="memorized"]')) { await sleep(150); continue; }
+      if (click('[data-act="open"]')) { await sleep(150); continue; }
+      if (v.task && !v.task.confirmed) {
+        const btns = [...doc.querySelectorAll('.tg[data-act="pick"]:not([disabled]):not(.wide)')];
+        if (v.task.kind === 'compare' && btns.length >= 2) {
+          const [a, b] = [...btns].sort(() => Math.random() - .5);
+          a.click();
+          await until(() => doc.querySelector(`.tg[data-act="pick"][data-id="${b.dataset.id}"]`), 3000).then(el => el.click()).catch(() => {});
+        } else if (btns.length) pickRandom(btns).click();
+        else click('.tg.wide');
+        await until(() => { const c = D(p.f).querySelector('[data-act="confirm"]'); return !c || !c.disabled; }, 3000).catch(() => {});
+        click('[data-act="confirm"]');
+        await sleep(120);
+        continue;
+      }
+      if (v.ballot && v.ballot.choice === undefined) {
+        const opts = [...doc.querySelectorAll('.tg[data-act="vote"]:not(.wide)')];
+        if (opts.length && Math.random() > .1) pickRandom(opts).click(); else click('.tg.wide[data-act="vote"]');
+        await sleep(120);
+        continue;
+      }
+      if (v.shot) {
+        const t = [...doc.querySelectorAll('.tg[data-act="aim"]')];
+        if (t.length) { pickRandom(t).click(); await sleep(150); click('[data-act="shoot"]'); await until(() => D(p.f).querySelector('.modal [data-close="ok"]'), 3000).then(b => b.click()).catch(() => {}); }
+      }
+    }
+  } catch (e) { say(e.message); }
+  busy = false;
+}
+
+// „TV też automatycznie”: klika przyciski gospodarza z przerwami, żeby dało się obejrzeć każdą fazę.
+const HOLD = { day: 4000, verdict: 11000, elim: 4500 };
+let phaseKey = '', phaseAt = 0, reported = false;
+async function tvMove() {
+  const v = view(tv);
+  if (!v || v.paused) return;
+  const key = `${v.phase}:${v.round}:${v.rev > 0 && v.phase === 'vote' ? v.vote.runoff : ''}:${v.verdict ? v.history.length : ''}`;
+  if (key !== phaseKey) { phaseKey = key; phaseAt = Date.now(); }
+  const doc = D(tv);
+  const click = sel => { const el = doc.querySelector(sel); if (el && !el.disabled) { el.click(); return true; } return false; };
+  if (v.phase === 'lobby' && v.game === 0 && click('[data-act="start"]')) {
+    const ok = await until(() => D(tv).querySelector('.modal [data-close="ok"]'), 3000).catch(() => null);
+    if (ok) ok.click();
+    return;
+  }
+  if (v.phase === 'deal') { click('[data-act="begin"]'); return; }
+  if (v.phase === 'end') {
+    if (!reported) { reported = true; say(`Koniec gry: wygrywa ${v.winner === 'mafia' ? 'mafia' : 'miasto'}.`); console.log('PODGLAD END ' + v.winner + ' rund ' + v.round); }
+    return;
+  }
+  const hold = HOLD[v.phase];
+  if (hold && Date.now() - phaseAt >= hold) click('.stage [data-act="next"]');
+}
+
+$('#new').onclick = () => { reported = false; newGame().catch(e => say(e.message)); };
+setInterval(() => { if ($('#autotv').checked) tvMove(); }, 700);
+if (new URLSearchParams(location.search).has('demo')) { $('#auto').checked = true; $('#autotv').checked = true; }
+$('#move').onclick = () => botMove();
+$('#mine').onchange = () => phones.forEach(p => p.box.classList.toggle('mine', String(p.i) === $('#mine').value));
+setInterval(() => { if ($('#auto').checked) botMove(); }, 1500);
+
+newGame().catch(e => say(e.message));
+</script>
+</body>
+</html>

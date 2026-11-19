@@ -1,5 +1,5 @@
 // Ekran główny Mafii: połączenie gospodarza, renderowanie regionów, akcje.
-import { BASE_URL } from '../config.js';
+import { API, BASE_URL } from '../config.js';
 import { Conn, createRoom, LOCAL } from '../net.js';
 import { $, ask, calm, esc, ICONS, modal, pad, qrSvg, setHTML, startClock, toast } from '../ui.js';
 import { boardHtml, topbarHtml, who } from './board.js';
@@ -8,7 +8,8 @@ import { stageHtml } from './phases.js';
 import { endHtml } from './results.js';
 import { plannedRoles, rolesSummary, wizardPatch } from './wizard.js';
 
-const KEY = 'mafia_host';
+// Pokój lokalny (SharedWorker) i prawdziwy (Cloudflare) zapisujemy osobno, żeby się nie nadpisywały.
+const KEY = LOCAL ? 'mafia_host_local' : 'mafia_host';
 const app = $('#app');
 let conn = null, view = null, layout = '', lastPhase = null, lastRound = 0;
 const seenRoster = new Set();
@@ -19,7 +20,9 @@ const store = {
   set(v) { try { v ? localStorage.setItem(KEY, JSON.stringify(v)) : localStorage.removeItem(KEY); } catch {} },
 };
 const base = () => (LOCAL ? new URL('./', location.href).href : BASE_URL);
-const joinUrl = code => `${base()}play.html?r=${code}`;
+// Tryb lokalny wymuszony parametrem (?local) przy skonfigurowanym serwerze: telefony też muszą zostać lokalne.
+const localFlag = LOCAL && API ? '&local=1' : '';
+const joinUrl = code => `${base()}play.html?r=${code}${localFlag}`;
 const now = () => (conn ? conn.now() : Date.now());
 const clock = startClock(now);
 
@@ -156,7 +159,7 @@ async function showRebind(id) {
   const out = await act({ a: 'rebind', id });
   if (!out || !out.rebind) return;
   const rb = out.rebind;
-  const url = `${base()}play.html?r=${view.code}#rb=${rb.token}`;
+  const url = `${base()}play.html?r=${view.code}${localFlag}#rb=${rb.token}`;
   if (rebindModal) rebindModal.close();
   rebindModal = modal(`
     <p class="eyebrow">Jednorazowy kod · ${esc(who(view, id))}</p>

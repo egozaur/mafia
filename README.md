@@ -21,3 +21,7 @@ Otwórz `http://localhost:8080/` (ekran główny), a graczy w kolejnych kartach 
 
 - Silnik i protokół: `node --test worker/test/engine.test.js` (CI) albo `worker/test/run.html` w przeglądarce.
 - Pełne gry przez interfejs: `http://localhost:8080/dev/e2e.html?n=7&games=2`.
+
+## Podgląd testowy (gra w pojedynkę)
+
+`https://pl3y.pl/mafia/dev/podglad.html` — ekran TV i 5–16 „telefonów” na jednej stronie, w trybie lokalnym (bez serwera). Boty mogą grać telefonami („Ruch botów”, „Boty grają same”), a „TV też automatycznie” prowadzi całą grę. Wybierz „Twój telefon”, żeby grać jednym z nich samemu. `?demo` włącza oba tryby automatyczne od razu.

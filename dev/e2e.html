@@ -56,15 +56,15 @@ function noLeak(host, players) {
 }
 
 try {
-  localStorage.removeItem('mafia_host');
-  const host = frame('../index.html', 'host');
+  localStorage.removeItem('mafia_host_local');
+  const host = frame('../index.html?local=1', 'host');
   await until(() => D(host).querySelector('[data-act="newroom-now"]'), 'splash');
   click(host, '[data-act="newroom-now"]');
   const code = await until(() => { const v = dbg(host) && dbg(host).view; return v && v.code; }, 'pokój');
   log('Pokój ' + code);
 
   const players = [];
-  for (let i = 0; i < N; i++) players.push(frame(`../play.html?r=${code}&slot=${i}`));
+  for (let i = 0; i < N; i++) players.push(frame(`../play.html?r=${code}&local=1&slot=${i}`));
   for (let i = 0; i < N; i++) {
     const p = players[i];
     const form = await until(() => D(p).querySelector('form[data-form="join"]'), 'formularz ' + i);
