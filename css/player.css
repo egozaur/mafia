@@ -1,0 +1,126 @@
+/* Telefon gracza */
+body { min-height: 100svh; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input { -webkit-user-select: text; user-select: text; }
+#app { min-height: 100vh; min-height: 100svh; display: flex; flex-direction: column; max-width: 560px; margin: 0 auto; padding: 0 16px max(18px, env(safe-area-inset-bottom)); }
+
+.ph-head { display: flex; align-items: center; gap: 10px; padding: max(14px, env(safe-area-inset-top)) 0 12px; border-bottom: 1px solid rgba(201, 168, 92, .12); }
+.ph-head .grow { flex: 1; min-width: 0; }
+.ph-head .me { font: 600 12px/1.2 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+.ph-head .me b { color: var(--gold); font-weight: 600; }
+
+.screen { flex: 1; display: flex; flex-direction: column; gap: 16px; padding: 22px 0 8px; animation: rise .45s var(--ease) both; }
+.screen.center { justify-content: center; align-items: center; text-align: center; }
+.screen h1 { font: 600 clamp(34px, 10vw, 46px)/1.02 var(--serif); margin: 0; }
+.screen .lead { color: var(--muted); margin: 0; font-size: 15.5px; }
+.screen .lead b { color: var(--text); }
+.bignum { font: 600 clamp(96px, 32vw, 150px)/.9 var(--serif); color: var(--gold); text-shadow: 0 0 50px rgba(201, 168, 92, .3); }
+.foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; padding-top: 12px; position: sticky; bottom: 0; padding-bottom: 6px; background: linear-gradient(180deg, transparent, var(--bg) 30%); }
+
+.field-in {
+  width: 100%; min-height: 56px; padding: 0 18px; border-radius: 14px;
+  background: rgba(0, 0, 0, .35); border: 1px solid var(--gold-line); color: var(--text);
+  font: 600 20px/1 var(--sans); text-align: center;
+}
+.field-in:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(201, 168, 92, .15); }
+.field-in.code { font: 600 30px/1 var(--mono); letter-spacing: .3em; text-transform: uppercase; padding-left: calc(18px + .3em); }
+
+/* lista graczy / celów */
+.targets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tg {
+  position: relative; display: flex; align-items: center; gap: 10px; min-height: 62px; padding: 10px 12px; text-align: left;
+  border-radius: 14px; border: 1px solid var(--gold-dim); background: linear-gradient(165deg, #1B1814, #12100D);
+  transition: border-color .2s, background .2s, transform .12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.tg:active { transform: scale(.97); }
+.tg .no { font: 600 22px/1 var(--serif); color: var(--gold); min-width: 28px; }
+.tg .nm { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.tg[aria-pressed="true"] { border-color: var(--gold); background: linear-gradient(165deg, #2C2617, #1A160F); box-shadow: 0 0 0 1px var(--gold), 0 0 26px -8px rgba(201, 168, 92, .6); }
+.tg:disabled { opacity: .35; }
+.tg .marks { position: absolute; top: -8px; right: 8px; display: flex; gap: 4px; }
+.tg .mk { font: 700 9.5px/1 var(--mono); letter-spacing: .08em; padding: 4px 6px; border-radius: 5px; background: var(--red); color: #fff; }
+.tg .mk.ok { background: var(--gold); color: var(--bg); }
+.tg.wide { grid-column: 1 / -1; justify-content: center; }
+.tg.wide .nm { flex: none; color: var(--muted); }
+.tg.dead { opacity: .4; border-style: dashed; }
+.tg.dead .nm { text-decoration: line-through; }
+
+.status-line { font: 600 11px/1.4 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); text-align: center; }
+.status-line.ok { color: var(--ok); }
+.note-box { border: 1px solid var(--gold-dim); border-radius: 12px; padding: 12px 14px; background: rgba(0, 0, 0, .3); font-size: 14px; }
+.note-box li { margin: 4px 0; }
+.note-box ul { margin: 6px 0 0; padding-left: 18px; }
+.hold { touch-action: none; }
+.report { border-left: 2px solid var(--gold); padding: 6px 0 6px 14px; text-align: left; }
+.report.blood { border-color: var(--red-hi); }
+
+/* koperta i karta roli */
+.envelope-wrap { position: relative; width: min(84vw, 330px); aspect-ratio: .72; margin: 8px auto 0; perspective: 1400px; }
+.envelope {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 58%; z-index: 3;
+  background: linear-gradient(170deg, #2A2318, #1A150E); border: 1px solid var(--gold-line); border-radius: 10px;
+  box-shadow: 0 30px 50px -20px rgba(0, 0, 0, .9);
+}
+.envelope::before { /* klapa przednia (V) */
+  content: ""; position: absolute; inset: 0; border-radius: 10px;
+  background: linear-gradient(to top right, transparent 49.4%, rgba(201, 168, 92, .3) 50%, transparent 50.6%), linear-gradient(to top left, transparent 49.4%, rgba(201, 168, 92, .3) 50%, transparent 50.6%);
+}
+.flap {
+  position: absolute; left: 0; right: 0; bottom: 58%; height: 30%; z-index: 4; transform-origin: bottom;
+  clip-path: polygon(0 100%, 50% 0, 100% 100%); background: linear-gradient(180deg, #3A3020, #241D13);
+  transition: transform .7s var(--ease);
+}
+.seal-btn {
+  position: absolute; left: 50%; bottom: 58%; z-index: 6; transform: translate(-50%, 50%);
+  width: 84px; height: 84px; border-radius: 49% 51% 47% 53% / 52% 48% 52% 48%; border: 0;
+  background: radial-gradient(circle at 34% 30%, #A8362C 0%, #8E2B22 45%, #6E1F18 100%);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, .6), inset 0 2px 4px rgba(255, 190, 170, .16), inset 0 -6px 12px rgba(0, 0, 0, .35);
+  font: italic 600 40px/1 var(--serif); color: #5E1812; text-shadow: 1px 1px 0 rgba(255, 160, 140, .25);
+  animation: sealpulse 2.2s ease-in-out infinite;
+}
+@keyframes sealpulse { 50% { box-shadow: 0 8px 18px rgba(0, 0, 0, .6), 0 0 0 10px rgba(185, 70, 59, .12), inset 0 2px 4px rgba(255, 190, 170, .16), inset 0 -6px 12px rgba(0, 0, 0, .35); } }
+.paper { position: absolute; left: 7%; right: 7%; bottom: 8%; height: 76%; z-index: 2; border-radius: 10px; background: #EDE3CC; }
+
+.role-card { position: absolute; inset: 0; z-index: 5; transform-style: preserve-3d; }
+.role-card .face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; border-radius: 16px; padding: 22px 20px; display: flex; flex-direction: column; gap: 10px; overflow: auto; text-align: left; }
+.role-card .front { background: #EDE3CC repeating-linear-gradient(0deg, transparent 0 26px, rgba(80, 60, 30, .08) 26px 27px); color: #2A2016; align-items: center; justify-content: center; font: 600 13px/1.2 var(--mono); letter-spacing: .3em; text-transform: uppercase; }
+.role-card .back { transform: rotateY(180deg); background: linear-gradient(165deg, #1E1A14, #100E0B); border: 1px solid var(--gold); box-shadow: 0 0 60px -12px rgba(201, 168, 92, .5); }
+.role-card .back.mafia { border-color: var(--red-hi); box-shadow: 0 0 60px -12px rgba(185, 70, 59, .6); }
+.role-card .rname { font: 600 44px/1 var(--serif); color: var(--gold-hi); margin: 2px 0 4px; }
+.role-card .back.mafia .rname { color: var(--red-hi); }
+.role-card .sec { font-size: 14px; line-height: 1.45; color: var(--text); }
+.role-card .sec .eyebrow { display: block; margin-bottom: 4px; font-size: 10px; }
+.role-card .team { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.opening .flap { transform: rotateX(180deg); z-index: 1; }
+.opening .seal-btn { animation: break .5s ease-in both; }
+.opening .role-card { animation: cardout 2.2s var(--ease) both .45s; }
+.opening .role-card .face.front { animation: hidefront 0s linear both 1.7s; }
+.opening .envelope, .opening .flap, .opening .paper { animation: sink .7s ease-in both 1.2s; }
+@keyframes break { to { transform: translate(-50%, 50%) scale(.2) rotate(40deg); opacity: 0; } }
+@keyframes cardout {
+  0% { transform: translateY(30%) scale(.86) rotateY(0); }
+  40% { transform: translateY(-14%) scale(.9) rotateY(0); }
+  100% { transform: translateY(0) scale(1) rotateY(180deg); }
+}
+@keyframes sink { to { transform: translateY(40%); opacity: 0; } }
+@keyframes hidefront { to { visibility: hidden; } }
+.envelope-wrap:not(.opening):not(.shown) .role-card { transform: translateY(30%) scale(.86); }
+.shown .role-card { transform: rotateY(180deg); }
+.shown .envelope, .shown .flap, .shown .paper, .shown .seal-btn { display: none; }
+.shown .role-card .face.front { visibility: hidden; }
+
+/* zapieczętowany ekran */
+.sealed-mark { width: 120px; height: 120px; border-radius: 49% 51% 47% 53% / 52% 48% 52% 48%; display: grid; place-items: center; margin: 0 auto 8px;
+  background: radial-gradient(circle at 34% 30%, #A8362C, #6E1F18); box-shadow: 0 12px 26px rgba(0, 0, 0, .6), inset 0 -8px 14px rgba(0, 0, 0, .35); transform: rotate(-8deg);
+  font: italic 600 58px/1 var(--serif); color: #5E1812; text-shadow: 1px 1px 0 rgba(255, 160, 140, .25); animation: pop .6s var(--ease) both; }
+
+.pause-veil { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; text-align: center; padding: 16px; background: rgba(5, 4, 3, .88); backdrop-filter: blur(5px); }
+.dead-banner { text-align: center; padding: 10px; border-radius: 10px; border: 1px solid rgba(185, 70, 59, .4); color: var(--red-hi); font: 600 11px/1.3 var(--mono); letter-spacing: .2em; text-transform: uppercase; background: rgba(185, 70, 59, .08); }
+.end-role { display: flex; flex-direction: column; gap: 6px; }
+.end-role .row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(0, 0, 0, .25); }
+.end-role .row .nm { flex: 1; font-weight: 500; }
+.end-role .row.dead .nm { color: #A55A50; text-decoration: line-through; }
+
+/* skrót font: zeruje font-variant, więc cyfry wyrównane ustawiamy po nim */
+.tg .no, .bignum, .sealed-mark { font-variant-numeric: lining-nums; }

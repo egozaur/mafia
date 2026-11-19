@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="pl">
+<head><meta charset="utf-8"><title>Mafia E2E</title>
+<style>body{margin:0;background:#0C0B09;color:#EFE8D8;font:13px/1.5 monospace}#out{white-space:pre-wrap;padding:12px}
+.frames{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:6px}iframe{width:100%;height:520px;border:1px solid #333;background:#000}iframe.host{grid-column:1/-1;height:640px}</style></head>
+<body>
+<pre id="out">start…</pre>
+<div class="frames" id="frames"></div>
+<script type="module">
+// Test end-to-end w jednej karcie: ekran główny + N telefonów (iframe'y z tej samej domeny dzielą lokalny SharedWorker).
+// Klika prawdziwe przyciski interfejsu, rozgrywa całe gry i sprawdza, że role nie wyciekają do DOM innych klientów.
+// Uruchom przez dev/serve.ps1: http://localhost:8080/dev/e2e.html?n=7&games=2
+import { ROLES } from '../worker/src/engine/roles.js';
+const q = new URLSearchParams(location.search);
+const N = +(q.get('n') || 7);
+const GAMES = +(q.get('games') || 2);
+// Zrzuty ekranu: ?stopAt=lobby|reveal|night|day|vote|verdict|elim|end&view=host|phone — zatrzymuje test i powiększa wybraną ramkę.
+const STOP = q.get('stopAt'), VIEW = q.get('view') || 'host';
+class Halt extends Error {}
+async function halt(name, phone) {
+  if (STOP !== name) return;
+  const f = VIEW === 'phone' && phone ? phone : document.querySelector('iframe.host');
+  // Bez przenoszenia w DOM (to przeładowałoby ramkę): reszta znika, wybrana ramka wypełnia widok.
+  out.style.display = 'none';
+  for (const x of document.querySelectorAll('iframe')) if (x !== f) x.style.visibility = 'hidden';
+  f.style.cssText = VIEW === 'phone' ? 'position:fixed;z-index:9;left:0;top:0;width:100vw;height:100vh;border:0' : 'position:fixed;z-index:9;inset:0;width:100vw;height:100vh;border:0';
+  await sleep(1200);
+  throw new Halt(name);
+}
+const out = document.getElementById('out');
+const log = s => { out.textContent += '\n' + s; console.log('E2E ' + s); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const frames = document.getElementById('frames');
+function frame(src, cls) { const f = document.createElement('iframe'); f.src = src; if (cls) f.className = cls; frames.append(f); return f; }
+async function until(fn, what, ms = 15000) {
+  const t0 = Date.now();
+  for (;;) { let r; try { r = fn(); } catch { r = null; } if (r) return r; if (Date.now() - t0 > ms) throw new Error('Timeout: ' + what); await sleep(40); }
+}
+const D = f => f.contentDocument;
+const dbg = f => f.contentWindow.mafiaDebug && f.contentWindow.mafiaDebug();
+const click = (f, sel) => { const el = D(f).querySelector(sel); if (!el) throw new Error('Brak elementu ' + sel); el.click(); return el; };
+const okModal = async f => { const b = await until(() => D(f).querySelector('.modal [data-close="ok"]'), 'modal'); b.click(); };
+const abilities = Object.values(ROLES).map(r => r.ability);
+let checks = 0;
+function noLeak(host, players) {
+  const ht = D(host).body.innerHTML;
+  for (const a of abilities) if (ht.includes(a)) throw new Error('Opis roli na ekranie głównym!');
+  for (const p of players) {
+    const v = dbg(p).view; if (!v) continue;
+    const html = D(p).body.innerHTML;
+    const shown = abilities.filter(a => html.includes(a));
+    if (shown.length > 1) throw new Error('Telefon pokazuje kilka ról');
+    if (shown.length === 1 && !(v.role && v.role.ability === shown[0])) throw new Error('Telefon pokazuje cudzą rolę');
+  }
+  checks++;
+}
+
+try {
+  localStorage.removeItem('mafia_host');
+  const host = frame('../index.html', 'host');
+  await until(() => D(host).querySelector('[data-act="newroom-now"]'), 'splash');
+  click(host, '[data-act="newroom-now"]');
+  const code = await until(() => { const v = dbg(host) && dbg(host).view; return v && v.code; }, 'pokój');
+  log('Pokój ' + code);
+
+  const players = [];
+  for (let i = 0; i < N; i++) players.push(frame(`../play.html?r=${code}&slot=${i}`));
+  for (let i = 0; i < N; i++) {
+    const p = players[i];
+    const form = await until(() => D(p).querySelector('form[data-form="join"]'), 'formularz ' + i);
+    form.querySelector('input[name="name"]').value = 'Gracz ' + (i + 1);
+    form.requestSubmit();
+    await until(() => dbg(p).view && dbg(p).view.me, 'dołączenie ' + i);
+  }
+  await until(() => dbg(host).view.players.length === N && dbg(host).view.players.every(p => p.online), 'wszyscy online');
+  log(`Dołączyło ${N} graczy`);
+  await halt('lobby', players[0]);
+
+  for (let g = 1; g <= GAMES; g++) {
+    if (g === 2) {   // CHAOS w drugiej grze
+      click(host, '[data-act="mode"][data-v="chaos"]');
+      await until(() => dbg(host).view.settings.mode === 'chaos', 'tryb chaos');
+    }
+    await until(() => !D(host).querySelector('[data-act="start"]').disabled, 'start aktywny');
+    click(host, '[data-act="start"]');
+    await okModal(host);
+    await until(() => dbg(host).view.phase === 'deal', 'rozdanie');
+
+    // tajne rozdawanie po kolei
+    let reloaded = false;
+    for (let k = 0; k < N; k++) {
+      const cur = await until(() => dbg(host).view.deal && dbg(host).view.deal.current, 'kolejny gracz');
+      const p = players.find(f => dbg(f).view.me.id === cur);
+      await until(() => D(p).querySelector('[data-act="open"]'), 'koperta');
+      if (players.some(f => f !== p && D(f).querySelector('[data-act="open"]'))) throw new Error('Koperta u niewłaściwego gracza');
+      click(p, '[data-act="open"]');
+      await until(() => D(p).querySelector('[data-act="memorized"]') && dbg(p).view.role, 'rola');
+      noLeak(host, players);
+      if (k === 2) { await sleep(2600); await halt('reveal', p); }
+      click(p, '[data-act="memorized"]');
+      await until(() => dbg(p).view && !dbg(p).view.me.roleOpen, 'zapieczętowanie');
+      await until(() => D(p).body.textContent.includes('zapieczętowana'), 'ekran zapieczętowania');
+      if (!reloaded && k === 1) {   // odświeżenie strony telefonu w trakcie rozdania
+        const id = dbg(p).view.me.id;
+        p.contentWindow.location.reload();
+        await sleep(300);
+        await until(() => dbg(p) && dbg(p).view && dbg(p).view.me && dbg(p).view.me.id === id, 'powrót po odświeżeniu');
+        reloaded = true;
+      }
+    }
+    await until(() => D(host).querySelector('[data-act="begin"]'), 'przycisk rozpoczęcia');
+    click(host, '[data-act="begin"]');
+    await until(() => dbg(host).view.phase === 'night', 'pierwsza noc');
+    log(`Gra ${g}: role rozdane, start`);
+
+    let steps = 0, regrant = false, paused = false;
+    for (;;) {
+      if (++steps > 400) throw new Error('Za dużo kroków');
+      const v = dbg(host).view;
+      if (v.phase === 'end') { await sleep(1500); await halt('end', players[0]); break; }
+      if (v.round >= 2 || v.phase !== 'night') { const ph = players.find(f => { const pv = dbg(f).view; return pv && (pv.task && pv.task.kind === 'kill' || pv.ballot || pv.shot); }) || players.find(f => dbg(f).view.me.alive); if (['day', 'vote', 'verdict', 'elim'].includes(v.phase) || v.round >= 2) { if (v.phase === 'verdict') await sleep(9000); if (v.phase === 'elim') await sleep(3500); await halt(v.phase, ph); } }
+      if (steps % 3 === 0) noLeak(host, players);
+      if (v.phase === 'night') {
+        if (!paused) {   // pauza i wznowienie
+          click(host, '[data-act="pause"]');
+          await until(() => dbg(host).view.paused && players.every(f => D(f).querySelector('#pause')), 'pauza na telefonach');
+          click(host, '#pause [data-act="resume"]');
+          await until(() => !dbg(host).view.paused, 'wznowienie');
+          paused = true;
+        }
+        if (!regrant && v.round === 2) {   // ponowne pokazanie roli za zgodą gospodarza
+          const p = players.find(f => dbg(f).view.me.alive);
+          const id = dbg(p).view.me.id;
+          click(host, `.pc[data-id="${id}"]`);
+          (await until(() => D(host).querySelector('.modal [data-close="grant"]'), 'menu gracza')).click();
+          await until(() => D(p).querySelector('[data-act="open"]'), 'koperta ponownie');
+          click(p, '[data-act="open"]');
+          await until(() => D(p).querySelector('[data-act="memorized"]'), 'rola ponownie');
+          noLeak(host, players);
+          click(p, '[data-act="memorized"]');
+          await until(() => !dbg(p).view.me.roleOpen && !dbg(p).view.me.canOpen, 'zamknięcie');
+          regrant = true;
+        }
+        for (const p of players) {
+          const pv = dbg(p).view;
+          if (!pv || !pv.task || pv.task.confirmed) continue;
+          const btns = [...D(p).querySelectorAll('.tg[data-act="pick"]:not([disabled]):not(.wide)')];
+          if (pv.task.kind === 'compare') {
+            btns[0].click();
+            const second = btns[1].dataset.id;   // przycisk jest przerysowany po pierwszym wyborze
+            (await until(() => D(p).querySelector(`.tg[data-act="pick"][data-id="${second}"]:not([aria-pressed="true"])`), 'drugi wybór')).click();
+          }
+          else (btns[(steps + pv.me.no) % btns.length] || D(p).querySelector('.tg.wide')).click();
+          await until(() => { const c = D(p).querySelector('[data-act="confirm"]'); return !c || !c.disabled; }, 'wybór nocny');
+          const c = D(p).querySelector('[data-act="confirm"]');
+          if (c) c.click();
+          await until(() => dbg(host).view.phase !== 'night' || !dbg(p).view.task || dbg(p).view.task.confirmed, 'zatwierdzenie');
+        }
+      } else if (v.phase === 'day') {
+        click(host, '.stage [data-act="next"]');
+      } else if (v.phase === 'vote') {
+        // wszyscy głosują na pierwszą dostępną osobę → większość
+        const target = v.vote.candidates[0];
+        for (const p of players) {
+          const pv = dbg(p).view;
+          if (!pv || !pv.ballot || pv.ballot.choice !== undefined) continue;
+          const b = D(p).querySelector(`.tg[data-act="vote"][data-id="${target}"]`) || D(p).querySelector('.tg[data-act="vote"]:not(.wide)');
+          b.click();
+          await until(() => dbg(p).view.phase !== 'vote' || dbg(p).view.ballot.choice !== undefined, 'głos');
+        }
+      } else if (v.phase === 'verdict' || v.phase === 'elim') {
+        click(host, '.stage [data-act="next"]');
+      } else if (v.phase === 'avenger') {
+        const p = players.find(f => dbg(f).view.shot);
+        click(p, '.tg[data-act="aim"]');
+        await until(() => !D(p).querySelector('[data-act="shoot"]').disabled, 'cel');
+        click(p, '[data-act="shoot"]');
+        await okModal(p);
+      } else throw new Error('Nieoczekiwana faza ' + v.phase);
+      await until(() => dbg(host).view.rev !== v.rev, 'zmiana stanu po fazie ' + v.phase, 8000);
+    }
+    const v = dbg(host).view;
+    if (!v.players.every(p => p.role)) throw new Error('Po grze nie wszystkie role ujawnione');
+    if (!D(host).querySelector('.winner')) throw new Error('Brak ekranu zwycięstwa');
+    for (const p of players) await until(() => D(p).body.textContent.includes('wygrywa'), 'koniec na telefonie');
+    log(`Gra ${g}: wygrywa ${v.winner}, rund ${v.round}, MVP ${v.end.mvp}, głosowań ${v.history.length}`);
+
+    click(host, '[data-act="rematch"]');
+    await okModal(host);
+    await until(() => dbg(host).view.phase === 'lobby', 'rewanż');
+    if (dbg(host).view.players.length !== N) throw new Error('Rewanż zgubił graczy');
+    log('Rewanż: lobby z tym samym składem');
+  }
+  log(`Kontroli wycieków: ${checks}`);
+  log('RESULT:PASS');
+} catch (e) {
+  if (e instanceof Halt) { log('STOP ' + e.message); console.log('E2E RESULT:STOP'); } else {
+  log('BŁĄD: ' + (e && e.stack || e));
+  try {
+    const h = document.querySelector('iframe.host');
+    const t = h.contentDocument.querySelector('.toast');
+    const v = h.contentWindow.mafiaDebug().view;
+    log('toast: ' + (t ? t.textContent : '-'));
+    log(`faza: ${v.phase} runda: ${v.round} elim: ${JSON.stringify(v.elim)} avenger: ${JSON.stringify(v.avenger)} winner: ${v.winner} deal: ${JSON.stringify(v.deal)}`);
+  } catch (x) { log(String(x)); }
+  log('RESULT:FAIL');
+  }
+}
+</script>
+</body></html>

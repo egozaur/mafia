@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="pl">
+<head><meta charset="utf-8"><title>Testy silnika</title>
+<style>body{font:14px/1.5 monospace;background:#0C0B09;color:#EFE8D8;padding:16px}.ok{color:#8c8}.bad{color:#e66}</style></head>
+<body>
+<pre id="out">…</pre>
+<script type="module">
+import { tests as engine } from './suite.js';
+import { roomTests } from './room.suite.js';
+const tests = [...engine, ...roomTests];
+const lines = []; let fails = 0;
+const t0 = performance.now();
+for (const t of tests) {
+  try { await t.fn(); lines.push('<span class="ok">✓</span> ' + t.name); }
+  catch (e) { fails++; lines.push('<span class="bad">✗ ' + t.name + '\n    ' + (e && e.stack || e) + '</span>'); }
+}
+lines.push('', `${tests.length - fails}/${tests.length} OK, ${fails} błędów, ${Math.round(performance.now() - t0)} ms`, fails ? 'RESULT:FAIL' : 'RESULT:PASS');
+document.getElementById('out').innerHTML = lines.join('\n');
+</script>
+</body></html>

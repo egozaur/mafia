@@ -1,0 +1,158 @@
+/* PL3Y Mafia — wspólny motyw: czerń, złoto, szeryfowe nagłówki (jak lobby PL3Y). */
+:root {
+  --bg: #0C0B09;
+  --bg2: #13110E;
+  --glow: #1C1813;
+  --card: #17140F;
+  --gold: #C9A85C;
+  --gold-hi: #E3C77F;
+  --gold-dim: rgba(201, 168, 92, .22);
+  --gold-line: rgba(201, 168, 92, .38);
+  --text: #EFE8D8;
+  --muted: #A39C8C;
+  --faint: #6E685C;
+  --red: #B9463B;
+  --red-hi: #D9584B;
+  --blood: #5A1712;
+  --dead: #3A1512;
+  --ok: #8DB37A;
+  --serif: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --sans: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ease: cubic-bezier(.22, .8, .24, 1);
+  --r: 14px;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  min-height: 100vh; min-height: 100svh;
+  background: var(--bg) radial-gradient(ellipse 80% 60% at 50% 40%, var(--glow) 0%, var(--bg) 72%) no-repeat fixed;
+  color: var(--text);
+  font: 15px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 3px; }
+a { color: var(--gold); }
+[hidden] { display: none !important; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+
+/* ---------- typografia ---------- */
+.serif { font-family: var(--serif); font-weight: 600; }
+.mono { font-family: var(--mono); }
+.eyebrow { font: 500 11px/1 var(--mono); letter-spacing: .32em; text-transform: uppercase; color: var(--gold); }
+.muted { color: var(--muted); }
+.title { font: 600 clamp(34px, 6vw, 64px)/1 var(--serif); margin: 0; letter-spacing: .01em; }
+.h2 { font: 600 clamp(26px, 3.4vw, 40px)/1.05 var(--serif); margin: 0; }
+.h3 { font: 600 22px/1.1 var(--serif); margin: 0; }
+.rule { height: 1px; background: linear-gradient(90deg, transparent, var(--gold-line), transparent); border: 0; margin: 18px 0; }
+
+/* ---------- znak PL3Y ---------- */
+.brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; color: var(--text); }
+.brand-mark {
+  width: 32px; height: 32px; border: 1.5px solid var(--gold); border-radius: 50%;
+  display: grid; place-items: center; padding-bottom: 2px;
+  font: italic 600 21px/1 var(--serif); color: var(--gold);
+  box-shadow: 0 0 20px rgba(201, 168, 92, .14);
+}
+.brand-name { font: 500 11px/1 var(--mono); letter-spacing: .42em; }
+
+/* ---------- przyciski ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  min-height: 48px; padding: 0 26px; border-radius: 999px;
+  background: var(--gold); color: var(--bg); border: 0;
+  font: 600 12.5px/1 var(--mono); letter-spacing: .26em; text-transform: uppercase;
+  box-shadow: 0 10px 30px -12px rgba(201, 168, 92, .55);
+  transition: background .2s, box-shadow .2s, transform .15s, opacity .2s;
+  -webkit-tap-highlight-color: transparent; text-decoration: none; white-space: nowrap;
+}
+.btn:hover:not(:disabled) { background: var(--gold-hi); }
+.btn:active:not(:disabled) { transform: scale(.97); }
+.btn:disabled { opacity: .38; box-shadow: none; }
+.btn.ghost { background: transparent; color: var(--gold); border: 1px solid var(--gold-line); box-shadow: none; }
+.btn.ghost:hover:not(:disabled) { background: rgba(201, 168, 92, .08); border-color: var(--gold); }
+.btn.danger { background: transparent; color: var(--red-hi); border: 1px solid rgba(185, 70, 59, .5); box-shadow: none; }
+.btn.danger:hover:not(:disabled) { background: rgba(185, 70, 59, .1); }
+.btn.small { min-height: 36px; padding: 0 16px; font-size: 11px; letter-spacing: .2em; }
+.btn.big { min-height: 60px; padding: 0 34px; font-size: 14px; }
+.btn.block { width: 100%; }
+.icon-btn {
+  width: 40px; height: 40px; border-radius: 50%; display: inline-grid; place-items: center;
+  background: rgba(12, 11, 9, .6); border: 1px solid var(--gold-line); color: var(--gold);
+}
+.icon-btn:hover { border-color: var(--gold); }
+.icon-btn svg { width: 18px; height: 18px; }
+
+/* ---------- panele, chipy ---------- */
+.panel {
+  background: linear-gradient(165deg, #1B1814 0%, #13110E 60%, #0F0E0B 100%);
+  border: 1px solid var(--gold-dim); border-radius: var(--r);
+  box-shadow: 0 30px 60px -30px rgba(0, 0, 0, .8);
+  padding: 22px;
+}
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 16px;
+  border-radius: 999px; border: 1px solid var(--gold-dim); background: rgba(0, 0, 0, .25);
+  font: 500 12px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted);
+}
+button.chip:hover { border-color: var(--gold-line); color: var(--text); }
+.chip[aria-pressed="true"] { border-color: var(--gold); color: var(--bg); background: var(--gold); }
+.tag { display: inline-block; padding: 3px 8px; border-radius: 6px; font: 600 10px/1.2 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
+.tag.mafia { background: rgba(185, 70, 59, .16); color: var(--red-hi); border: 1px solid rgba(185, 70, 59, .4); }
+.tag.town { background: rgba(201, 168, 92, .1); color: var(--gold); border: 1px solid var(--gold-dim); }
+
+/* ---------- liczby graczy ---------- */
+.no { font: 600 12px/1 var(--mono); letter-spacing: .08em; color: var(--gold); }
+
+/* ---------- licznik ---------- */
+.timer { font: 600 clamp(28px, 4vw, 52px)/1 var(--mono); letter-spacing: .04em; font-variant-numeric: tabular-nums; color: var(--text); }
+.timer.low { color: var(--red-hi); animation: pulse 1s ease-in-out infinite; }
+
+/* ---------- stan połączenia ---------- */
+.net {
+  position: fixed; left: 50%; top: max(10px, env(safe-area-inset-top)); transform: translateX(-50%);
+  z-index: 90; padding: 8px 16px; border-radius: 999px;
+  background: rgba(20, 16, 12, .95); border: 1px solid rgba(185, 70, 59, .5); color: var(--red-hi);
+  font: 600 11px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase;
+  display: none; align-items: center; gap: 8px;
+}
+.net.on { display: inline-flex; }
+.net::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulse 1s infinite; }
+
+/* ---------- toast ---------- */
+.toast {
+  position: fixed; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); transform: translate(-50%, 20px);
+  z-index: 95; max-width: min(92vw, 520px); padding: 12px 18px; border-radius: 12px;
+  background: #1E1A14; border: 1px solid var(--gold-line); color: var(--text); font-size: 14px;
+  opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s var(--ease);
+}
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+.toast.err { border-color: rgba(185, 70, 59, .6); }
+
+/* ---------- okno dialogowe ---------- */
+.modal { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 16px; background: rgba(5, 4, 3, .78); backdrop-filter: blur(4px); animation: fade .2s ease; }
+.modal .panel { width: min(100%, 460px); max-height: 92vh; overflow: auto; text-align: center; animation: rise .35s var(--ease); }
+.modal .actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 20px; }
+
+/* ---------- animacje ---------- */
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+@keyframes pulse { 50% { opacity: .45; } }
+@keyframes pop { 0% { transform: scale(.6); opacity: 0; } 60% { transform: scale(1.06); opacity: 1; } 100% { transform: scale(1); } }
+@keyframes shimmer { from { background-position: -200% 0; } to { background-position: 200% 0; } }
+.rise { animation: rise .5s var(--ease) both; }
+.fade { animation: fade .4s ease both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
+/* Duże numery graczy: cyfry wyrównane do linii pisma (Cormorant domyślnie ma cyfry nautyczne). */
+.serif, .title, .h2, .h3, .big-title, .no, .pc-no, .num, .bignum, .count, .tg .no { font-variant-numeric: lining-nums; }

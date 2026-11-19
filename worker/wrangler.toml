@@ -1,0 +1,20 @@
+name = "pl3y-mafia"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+[vars]
+# Strony, z których wolno łączyć się z serwerem gry.
+ALLOWED_ORIGINS = "https://pl3y.pl,https://www.pl3y.pl,https://egozaur.github.io"
+# "true" pozwala łączyć się ze stron http://localhost:… (testy frontendu z prawdziwym serwerem).
+ALLOW_LOCALHOST = "false"
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+[observability]
+enabled = true
