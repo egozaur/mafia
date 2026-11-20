@@ -14,7 +14,7 @@ Otwórz `http://localhost:8080/` (ekran główny), a graczy w kolejnych kartach 
 
 1. Załóż darmowe konto Cloudflare. Utwórz token API z uprawnieniem „Edit Cloudflare Workers” i zanotuj Account ID.
 2. W repozytorium GitHub (`egozaur/mafia`) dodaj sekrety `CLOUDFLARE_API_TOKEN` i `CLOUDFLARE_ACCOUNT_ID`.
-3. Push na `main` uruchamia testy i deploy Workera (`pl3y-mafia`). Adres Workera (`https://pl3y-mafia.<subdomena>.workers.dev`) wpisz w `js/config.js` jako `API`.
+3. Push na `main` uruchamia testy i deploy Workera (`pl3y-server`). Adres Workera (`https://pl3y-server.<subdomena>.workers.dev`) wpisz w `js/config.js` jako `API`.
 4. Włącz GitHub Pages dla repo. Gra pojawi się pod `https://pl3y.pl/mafia/`.
 
 ## Testy
