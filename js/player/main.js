@@ -30,10 +30,13 @@ const now = () => (conn ? conn.now() : Date.now());
 const clock = startClock(now);
 
 // ---------- nagłówek ----------
+// W aplikacji PL3Y (ekran główny, pełny ekran) nie ma przycisku Wstecz, więc logo prowadzi do lobby.
+const APP = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 function head() {
   const me = view && view.me;
+  const brand = '<span class="brand-mark" aria-hidden="true">P</span><span class="brand-name">MAFIA</span>';
   return `<header class="ph-head">
-    <span class="brand"><span class="brand-mark" aria-hidden="true">P</span><span class="brand-name">MAFIA</span></span>
+    ${APP ? `<button class="brand" data-act="home" style="background:none;border:0;padding:0;cursor:pointer" aria-label="Wróć do PL3Y">${brand}<span class="brand-name" style="opacity:.6"> ⌂</span></button>` : `<span class="brand">${brand}</span>`}
     <span class="grow me">${me ? `<b>${String(me.no).padStart(2, '0')}</b> · ${esc(me.name)}` : code ? `Pokój ${esc(code)}` : ''}</span>
   </header>`;
 }
@@ -141,6 +144,7 @@ async function act(action) {
 
 // ---------- zdarzenia ----------
 const ACTIONS = {
+  home: async () => { if (await ask('Wrócić do PL3Y?', 'Do gry wrócisz, skanując ponownie kod z ekranu.', { ok: 'Tak, wróć' })) location.href = '/'; },
   open: () => act({ a: 'open' }),
   memorized: () => act({ a: 'memorized' }),
   pick(el) {

@@ -21,6 +21,7 @@ Always respond to the user in Polish (zawsze odpowiadaj po polsku). UI text and 
 - `js/host/*` — TV views (wizard, lobby, board, phases, results); `js/player/*` — phone views (join, envelope, night, screens). Views are string templates; regions are updated with `setHTML()` only when the HTML changes, so CSS animations don't restart.
 - `js/config.js` — `API` (Worker URL). **Empty = local mode**: `dev/server.js` runs the same `Room` class in a SharedWorker, so the game works across tabs of one browser without Cloudflare.
 - `index.html` loads the shared PL3Y password gate `/auth.js`; `play.html` deliberately does not (players come from a QR code; tokens protect access).
+- Both pages carry the shared PL3Y app meta tags (see the lobby's CLAUDE.md). In the home-screen app there is no browser Back button, so on the phone the header logo becomes a button (`data-act="home"`, only when `APP`) that returns to `/` after a confirm; the player token stays in localStorage, so rescanning the code resumes the game.
 
 ## Testing
 
