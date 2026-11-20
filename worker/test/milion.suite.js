@@ -273,3 +273,38 @@ test('ranking solo: osobne listy i miejsca dla poziomów', async () => {
   assert(of('n').length === TOP && of('x').length === 1 && of('e').length === 1, 'limit na poziom');
   assert(!j.solo.some(e => e.nick === 'Zly'), 'zły poziom odrzucony');
 });
+
+test('emotki: lecą tylko do TV, limit tempa, walidacja indeksu', async () => {
+  const { room, host, ps, clock } = await setup(2);
+  await send(room, host, { t: 'start', time: 30, pool: POOL() });
+  const n0 = host.out.filter(m => m.t === 'emo').length;
+  await send(room, ps[0], { t: 'emo', e: 3 });
+  const em = host.out.filter(m => m.t === 'emo');
+  assert(em.length === n0 + 1 && em[em.length - 1].e === 3 && em[em.length - 1].name === 'Gracz0', 'host dostał emotkę');
+  assert(!ps[1].out.some(m => m.t === 'emo') && !ps[0].out.some(m => m.t === 'emo'), 'telefony nie dostają emotek');
+  await send(room, ps[0], { t: 'emo', e: 4 });
+  assert(host.out.filter(m => m.t === 'emo').length === n0 + 1, 'limit tempa');
+  clock.add(1500);
+  await send(room, ps[0], { t: 'emo', e: 99 });
+  await send(room, ps[0], { t: 'emo', e: -1 });
+  await send(room, ps[0], { t: 'emo', e: 'x' });
+  assert(host.out.filter(m => m.t === 'emo').length === n0 + 1, 'zły indeks odrzucony');
+  await send(room, ps[0], { t: 'emo', e: 7 });
+  assert(host.out.filter(m => m.t === 'emo').length === n0 + 2, 'po przerwie znów działa');
+});
+
+test('statystyki meczu: najszybsza poprawna, seria, koła', async () => {
+  const { room, host, ps, clock } = await setup(2);
+  await send(room, host, { t: 'start', time: 30, pool: POOL() });
+  clock.add(2000);
+  await send(room, ps[0], { t: 'ans', i: okOf(0) });
+  await send(room, ps[1], { t: 'ans', i: badOf(0) });
+  let pl = host.view().players;
+  assert(pl[0].fast >= 2000 && pl[0].fast < 2100 && pl[0].best === 1, 'gracz 0: czas i seria');
+  assert(pl[1].fast === null && pl[1].best === 0, 'gracz 1: brak poprawnych');
+  await send(room, host, { t: 'next' });
+  await send(room, ps[0], { t: 'life', k: 'f' });
+  await send(room, ps[0], { t: 'ans', i: okOf(1) });
+  pl = host.view().players;
+  assert(pl[0].best === 2 && pl[0].used === 1, 'seria 2, jedno koło');
+});

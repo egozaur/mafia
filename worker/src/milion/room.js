@@ -15,6 +15,8 @@ export const MAX_PLAYERS = 12;
 export const GRACE = 800;                     // zapas na opóźnienie sieci po upływie czasu (ms)
 const MAX_MSG = 120000;
 const LIFES = ['f', 'a', 's'];                // 50:50, publiczność, zamiana pytania
+export const EMOTES = 8;                      // liczba emotek do wysyłania z telefonu (indeksy 0..7, obrazki na kliencie)
+export const EMO_GAP = 1000;                  // min. odstęp między emotkami jednego gracza (ms)
 
 const token = (bytes = 16) => [...crypto.getRandomValues(new Uint8Array(bytes))].map(b => b.toString(16).padStart(2, '0')).join('');
 const rnd = () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
@@ -68,7 +70,8 @@ export function audienceSim(ok, qi, removed = [], r = rnd) {
 
 function newPlayer(name) {
   return { id: token(4), token: token(12), name, total: 0, rp: [0, 0, 0], out: false, outQ: null,
-    life: { f: true, a: true, s: true }, ans: null, at: 0, seq: 0, swap: false, fifty: null, aud: null, gain: 0, correct: null };
+    life: { f: true, a: true, s: true }, ans: null, at: 0, seq: 0, swap: false, fifty: null, aud: null, gain: 0, correct: null,
+    fast: null, streak: 0, best: 0, used: 0 };   // statystyki meczu: najszybsza poprawna (ms), seria, najdłuższa seria, użyte koła
 }
 
 function cleanName(n) { return String(n || '').replace(/\s+/g, ' ').trim().slice(0, 16); }
@@ -80,6 +83,7 @@ export class MlRoom {
     this.state = undefined;
     this.now = () => Date.now();
     this.rnd = rnd;
+    this.lastEmo = new Map();                  // id gracza → czas ostatniej emotki (limit tempa, tylko w pamięci)
     if (typeof WebSocketRequestResponsePair !== 'undefined') {
       ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"t":"ping"}', '{"t":"pong"}'));
     }
@@ -151,6 +155,7 @@ export class MlRoom {
       if (msg.t === 'ans') return this.answer(p, msg);
       if (msg.t === 'life') return this.life(ws, p, msg);
       if (msg.t === 'vote') return this.vote(p, msg);
+      if (msg.t === 'emo') return this.emote(p, msg);
       return;
     }
     this.send(ws, { t: 'error', code: 'nohello', err: 'Najpierw się przywitaj.' });
@@ -207,7 +212,7 @@ export class MlRoom {
     s.pool = pool;
     s.time = TIMES.includes(Number(msg.time)) ? Number(msg.time) : 30;
     s.round = 0; s.saved = false;
-    for (const p of s.players) { p.total = 0; p.rp = [0, 0, 0]; }
+    for (const p of s.players) { p.total = 0; p.rp = [0, 0, 0]; p.fast = null; p.streak = 0; p.best = 0; p.used = 0; }
     this.beginRound();
     await this.commit();
   }
@@ -269,8 +274,11 @@ export class MlRoom {
     const good = alive.filter(p => p.ans != null && p.ans === this.cur(p).ok).sort((a, b) => a.at - b.at || a.seq - b.seq);
     for (const p of alive) {
       const k = good.indexOf(p);
-      if (k < 0) { p.correct = false; p.out = true; p.outQ = s.qi; p.gain = 0; continue; }
+      if (k < 0) { p.correct = false; p.out = true; p.outQ = s.qi; p.gain = 0; p.streak = 0; continue; }
       p.correct = true;
+      const ms = Math.max(0, p.at - (s.deadline - s.time * 1000 - GRACE));
+      if (p.fast == null || ms < p.fast) p.fast = ms;
+      p.streak++; if (p.streak > p.best) p.best = p.streak;
       p.gain = Math.round(LADDER[s.qi] * (1 + (BONUS[k] || 0)));
       p.total += p.gain; p.rp[s.round] += p.gain;
     }
@@ -305,7 +313,7 @@ export class MlRoom {
     const s = this.state;
     const k = msg.k;
     if (s.phase !== 'q' || p.out || p.ans != null || !LIFES.includes(k) || !p.life[k]) return;
-    p.life[k] = false;
+    p.life[k] = false; p.used++;
     if (k === 's') { p.swap = true; p.fifty = null; p.aud = null; }
     else if (k === 'f') {
       const q = this.cur(p);
@@ -318,6 +326,19 @@ export class MlRoom {
       p.aud = crowd.length ? { votes: {}, sim: null } : { votes: {}, sim: audienceSim(this.cur(p).ok, s.qi, p.fifty || [], this.rnd) };
     }
     await this.commit();
+  }
+
+  // Emotka z telefonu: leci tylko do ekranu TV (nie zmienia stanu gry). Dozwolona w każdej fazie, także dla odpadniętych.
+  emote(p, msg) {
+    const e = Number(msg.e);
+    if (!Number.isInteger(e) || e < 0 || e >= EMOTES) return;
+    const t = this.now();
+    if (t - (this.lastEmo.get(p.id) || 0) < EMO_GAP) return;
+    this.lastEmo.set(p.id, t);
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment() || {};
+      if (a.kind === 'host') this.send(ws, { t: 'emo', id: p.id, name: p.name, e });
+    }
   }
 
   async vote(v, msg) {
@@ -381,7 +402,7 @@ export class MlRoom {
     const open = s.phase === 'reveal';
     const v = this.common();
     v.players = s.players.map(p => ({ id: p.id, name: p.name, total: p.total, rp: [...p.rp], out: p.out, outQ: p.outQ,
-      answered: p.ans != null, conn: conn.has(p.id), swap: p.swap,
+      answered: p.ans != null, conn: conn.has(p.id), swap: p.swap, fast: p.fast, best: p.best, used: p.used,
       gain: open ? p.gain : 0, correct: open ? p.correct : null, ans: open ? p.ans : null, rank: open ? this.rank(p) : 0 }));
     if (s.pool && (s.phase === 'q' || s.phase === 'reveal')) {
       const q = s.pool[s.round][s.qi].m;
