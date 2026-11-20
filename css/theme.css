@@ -88,6 +88,14 @@ a { color: var(--gold); }
 }
 .icon-btn:hover { border-color: var(--gold); }
 .icon-btn svg { width: 18px; height: 18px; }
+/* Powrót do lobby PL3Y: ten sam kształt co w Tajniakach, kolory czerni i złota */
+.tolobby {
+  display: inline-flex; align-items: center; gap: .35em; padding: .4em .8em; border-radius: 10px;
+  font: 700 14px/1.3 var(--sans); color: var(--gold); background: rgba(12, 11, 9, .6); border: 2px solid var(--gold-line);
+  transition: border-color .15s, color .15s, background .15s; white-space: nowrap;
+}
+.tolobby:hover { border-color: var(--gold); color: var(--gold-hi); background: rgba(201, 168, 92, .08); }
+.tolobby:active { transform: translateY(1px); }
 
 /* ---------- panele, chipy ---------- */
 .panel {

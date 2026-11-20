@@ -9,7 +9,7 @@ export function topbarHtml(v) {
   const showClock = v.phase !== 'lobby' && v.phase !== 'end' && v.phase !== 'deal';
   return `
   <header class="topbar">
-    <button class="icon-btn" data-act="lobby" aria-label="Wróć do lobby PL3Y" title="Lobby PL3Y">${ICONS.back}</button>
+    <button class="tolobby" data-act="lobby" title="Wróć do lobby PL3Y">← Lobby</button>
     <span class="brand"><span class="brand-mark" aria-hidden="true">P</span><span class="brand-name">MAFIA</span></span>
     <span class="grow"></span>
     ${v.round ? `<span class="phase-label"><span class="eyebrow">Runda ${v.round}</span><b>${esc(phase)}</b></span>` : `<span class="phase-label"><span class="eyebrow">${esc(MODES[v.settings.mode])}</span><b>${esc(phase)}</b></span>`}

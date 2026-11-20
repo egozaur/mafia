@@ -33,8 +33,7 @@ function splash(msg) {
   const saved = store.get();
   app.innerHTML = `
     <header class="topbar">
-      <button class="icon-btn" data-act="lobby" aria-label="Wróć do lobby PL3Y" title="Lobby PL3Y">${ICONS.back}</button>
-      <span class="brand"><span class="brand-mark" aria-hidden="true">P</span><span class="brand-name">PL3Y</span></span>
+      <button class="tolobby" data-act="lobby" title="Wróć do lobby PL3Y">← Lobby</button>
     </header>
     <main class="splash">
       <div class="rise">
