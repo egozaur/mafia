@@ -7,8 +7,9 @@ import { MlRoom } from './milion/room.js';
 import { MlScores } from './milion/scores.js';
 import { RzWords } from './rozejrzyj/words.js';
 import { KiRoom } from './kurczacze/room.js';
+import { TjDuo } from './tajniacy/duo.js';
 
-export { Room, TjRoom, TjSaves, MlRoom, MlScores, RzWords, KiRoom };
+export { Room, TjRoom, TjSaves, MlRoom, MlScores, RzWords, KiRoom, TjDuo };
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // bez 0/O, 1/I
 const CODE_LEN = 5;
@@ -76,6 +77,10 @@ export default {
     if (url.pathname === '/api/tj/rooms' && req.method === 'POST') return createRoom(env.TJ_ROOMS, origin);
     m = url.pathname.match(/^\/api\/tj\/rooms\/([A-Za-z0-9]+)\/ws$/);
     if (m) return roomSocket(env.TJ_ROOMS, req, origin, m[1]);
+    // Tryb dla 2 osób (Duet): osobny pokój, serwer pilnuje zasad i kluczy.
+    if (url.pathname === '/api/tj/duo/rooms' && req.method === 'POST') return createRoom(env.TJ_DUO, origin);
+    m = url.pathname.match(/^\/api\/tj\/duo\/rooms\/([A-Za-z0-9]+)\/ws$/);
+    if (m) return roomSocket(env.TJ_DUO, req, origin, m[1]);
     m = url.pathname.match(/^\/api\/tj\/saves(\/\d{1,16})?$/);
     if (m) {
       if (!origin) return new Response('Forbidden', { status: 403 });

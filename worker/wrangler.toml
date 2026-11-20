@@ -58,5 +58,13 @@ class_name = "KiRoom"
 tag = "v5"
 new_sqlite_classes = ["KiRoom"]
 
+[[durable_objects.bindings]]
+name = "TJ_DUO"
+class_name = "TjDuo"
+
+[[migrations]]
+tag = "v6"
+new_sqlite_classes = ["TjDuo"]
+
 [observability]
 enabled = true

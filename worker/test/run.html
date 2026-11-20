@@ -11,7 +11,8 @@ import { tjTests } from './tajniacy.suite.js';
 import { mlTests } from './milion.suite.js';
 import { rzTests } from './rozejrzyj.suite.js';
 import { kiTests } from './kurczacze.suite.js';
-const tests = [...engine, ...roomTests, ...tjTests, ...mlTests, ...rzTests, ...kiTests];
+import { tjDuoTests } from './tajniacy-duo.suite.js';
+const tests = [...engine, ...roomTests, ...tjTests, ...mlTests, ...rzTests, ...kiTests, ...tjDuoTests];
 const lines = []; let fails = 0;
 const t0 = performance.now();
 for (const t of tests) {
