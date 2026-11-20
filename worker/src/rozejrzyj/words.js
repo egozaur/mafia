@@ -4,6 +4,7 @@
 // Klucze w storage:
 //   r:<ts36>-<rand>  { letter, words: [...], ts }    surowy zapis rundy (kolejność podania), nigdy nie zmieniany
 //   agg:<LITERA>     { rounds, first: {słowo:n}, all: {słowo:n} }   all = w ilu rundach słowo padło
+//   rcount           liczba zapisanych rund (limit MAX_ROUNDS, nadmiar kasowany od najstarszych)
 //   alias            { wariant: słowo docelowe }     scalenia, stosowane przy odczycie (więc odwracalne)
 //   learned          [słowa]                          słowa przyjęte w grze (klient nie ostrzega o nich jako o spoza słownika)
 //
@@ -18,6 +19,8 @@ export const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '
 export const MAX_WORDS = 60;
 export const MAX_LEN = 40;
 const MAX_LEARNED = 20000;
+// Limit surowych rund w storage: po przekroczeniu najstarsze są usuwane (liczniki agg:* zostają, więc statystyki się nie cofają).
+export const MAX_ROUNDS = 5000;
 
 // Ta sama normalizacja co w przeglądarce (rz.js): małe litery, zwinięte i obcięte spacje.
 export const norm = s => String(s == null ? '' : s).normalize('NFC').replace(/\s+/g, ' ').trim().toLocaleLowerCase('pl');
@@ -55,6 +58,16 @@ export class RzWords {
 
   async get(k, def) { const v = await this.ctx.storage.get(k); return v === undefined ? def : v; }
 
+  // Pilnuje limitu MAX_ROUNDS: licznik w `rcount`, nadmiar kasujemy od najstarszych (klucze r:<ts36>-… sortują się chronologicznie).
+  async trimRounds() {
+    const n = (await this.get('rcount', 0)) + 1;
+    if (n <= MAX_ROUNDS) { await this.ctx.storage.put('rcount', n); return; }
+    const over = n - MAX_ROUNDS;
+    const old = await this.ctx.storage.list({ prefix: 'r:', limit: over });
+    await this.ctx.storage.delete([...old.keys()]);
+    await this.ctx.storage.put('rcount', n - old.size);
+  }
+
   async stats() {
     const alias = await this.get('alias', {});
     const learned = await this.get('learned', []);
@@ -87,6 +100,7 @@ export class RzWords {
       const ts = this.now();
       const id = ts.toString(36) + '-' + Math.random().toString(36).slice(2, 8);
       await this.ctx.storage.put('r:' + id, { letter: r.letter, words: r.words, ts });
+      await this.trimRounds();
       const a = await this.get('agg:' + r.letter, { rounds: 0, first: {}, all: {} });
       a.rounds++;
       if (r.words.length) a.first[r.words[0]] = (a.first[r.words[0]] || 0) + 1;

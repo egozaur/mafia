@@ -7,6 +7,7 @@
 //   ← {t:'state', view} po każdej zmianie · {t:'error', code, err}
 // Ruchy: {a:'clue', word, n} · {a:'guess', i} · {a:'end'} · {a:'surrender'}
 import * as E from './duo-engine.js';
+import { limitMessage, ttlFor } from '../limits.js';
 
 export const DUO_TTL = 3 * 24 * 60 * 60 * 1000;
 const MAX_MSG = 4000;
@@ -27,6 +28,9 @@ export class TjDuo {
     }
   }
 
+  // Po zakończeniu partii pokój żyje krócej.
+  ttl(s) { return ttlFor(!!(s.game && s.game.phase === 'end'), DUO_TTL); }
+
   async load() {
     if (this.state === undefined) this.state = (await this.ctx.storage.get('state')) || null;
     return this.state;
@@ -34,7 +38,7 @@ export class TjDuo {
 
   async save() {
     await this.ctx.storage.put('state', this.state);
-    await this.ctx.storage.setAlarm(this.state.touchedAt + DUO_TTL);
+    await this.ctx.storage.setAlarm(this.state.touchedAt + this.ttl(this.state));
   }
 
   async fetch(req) {
@@ -56,7 +60,7 @@ export class TjDuo {
 
   async init(code) {
     const cur = await this.load();
-    if (cur && this.now() - cur.touchedAt < DUO_TTL) return null;
+    if (cur && this.now() - cur.touchedAt < this.ttl(cur)) return null;
     this.state = { code, seats: [null, null], turns: 9, game: null, games: 0, touchedAt: this.now() };
     await this.save();
     return { code };
@@ -69,6 +73,7 @@ export class TjDuo {
   }
 
   async webSocketMessage(ws, raw) {
+    if (limitMessage(this, ws)) return;
     if (typeof raw !== 'string' || raw.length > MAX_MSG) return this.send(ws, { t: 'error', err: 'Nieprawidłowa wiadomość.' });
     let msg;
     try { msg = JSON.parse(raw); } catch { return this.send(ws, { t: 'error', err: 'Nieprawidłowa wiadomość.' }); }
@@ -156,7 +161,7 @@ export class TjDuo {
   async alarm() {
     const s = await this.load();
     if (!s) return;
-    if (this.now() - s.touchedAt >= DUO_TTL) {
+    if (this.now() - s.touchedAt >= this.ttl(s)) {
       for (const ws of this.ctx.getWebSockets()) try { ws.close(4404, 'expired'); } catch {}
       await this.ctx.storage.deleteAll();
       this.state = null;

@@ -2,6 +2,7 @@
 // wysyła cały stan (`set`), a serwer go przechowuje i rozsyła kapitanom (telefony z kluczem).
 // Ten sam pokój służy kolejnym grom; przy nowej planszy prowadzący wysyła `rotate`, a serwer wydaje
 // nowe kody kapitanów i rozłącza stare telefony (kapitanowie skanują nowy kod QR).
+import { limitMessage } from '../limits.js';
 
 export const TJ_TTL = 7 * 24 * 60 * 60 * 1000;   // pokój bez aktywności znika po tygodniu
 const MAX_MSG = 16384;
@@ -86,6 +87,7 @@ export class TjRoom {
   }
 
   async webSocketMessage(ws, raw) {
+    if (limitMessage(this, ws)) return;
     if (typeof raw !== 'string' || raw.length > MAX_MSG) return this.send(ws, { t: 'error', err: 'Nieprawidłowa wiadomość.' });
     let msg;
     try { msg = JSON.parse(raw); } catch { return this.send(ws, { t: 'error', err: 'Nieprawidłowa wiadomość.' }); }

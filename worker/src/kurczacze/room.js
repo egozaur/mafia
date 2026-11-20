@@ -7,6 +7,7 @@
 //   → {t:'cfg', time} (gospodarz, w lobby) · {t:'start'} (gospodarz, 2 graczy) · {t:'move', act, id?} · {t:'rematch'}
 //   ← {t:'state', view} po każdej zmianie · {t:'error', code, err}
 import * as E from './engine.js';
+import { limitMessage, ttlFor } from '../limits.js';
 
 export const KI_TTL = 3 * 24 * 60 * 60 * 1000;   // pokój bez aktywności znika po 3 dniach
 export const GRACE = 1000;                        // zapas na opóźnienie sieci po upływie czasu tury (ms)
@@ -28,6 +29,9 @@ export class KiRoom {
     }
   }
 
+  // Po zakończeniu partii pokój żyje krócej (rewanż nadal możliwy w tym czasie).
+  ttl(s) { return ttlFor(!!(s.game && s.game.phase === 'end'), KI_TTL); }
+
   async load() {
     if (this.state === undefined) this.state = (await this.ctx.storage.get('state')) || null;
     return this.state;
@@ -36,7 +40,7 @@ export class KiRoom {
   async save() {
     const s = this.state;
     await this.ctx.storage.put('state', s);
-    await this.ctx.storage.setAlarm(s.deadline ? Math.min(s.deadline, s.touchedAt + KI_TTL) : s.touchedAt + KI_TTL);
+    await this.ctx.storage.setAlarm(s.deadline ? Math.min(s.deadline, s.touchedAt + this.ttl(s)) : s.touchedAt + this.ttl(s));
   }
 
   async fetch(req) {
@@ -58,7 +62,7 @@ export class KiRoom {
 
   async init(code) {
     const cur = await this.load();
-    if (cur && this.now() - cur.touchedAt < KI_TTL) return null;
+    if (cur && this.now() - cur.touchedAt < this.ttl(cur)) return null;
     this.state = { code, seats: [null, null], time: 0, game: null, deadline: 0, games: 0, touchedAt: this.now() };
     await this.save();
     return { code };
@@ -71,6 +75,7 @@ export class KiRoom {
   }
 
   async webSocketMessage(ws, raw) {
+    if (limitMessage(this, ws)) return;
     if (typeof raw !== 'string' || raw.length > MAX_MSG) return this.send(ws, { t: 'error', err: 'Nieprawidłowa wiadomość.' });
     let msg;
     try { msg = JSON.parse(raw); } catch { return this.send(ws, { t: 'error', err: 'Nieprawidłowa wiadomość.' }); }
@@ -186,7 +191,7 @@ export class KiRoom {
       this.arm();
       return this.commit();
     }
-    if (this.now() - s.touchedAt >= KI_TTL) {
+    if (this.now() - s.touchedAt >= this.ttl(s)) {
       for (const ws of this.ctx.getWebSockets()) try { ws.close(4404, 'expired'); } catch {}
       await this.ctx.storage.deleteAll();
       this.state = null;

@@ -1,5 +1,5 @@
 // Testy serwera „Rozejrzyj się”: wspólna baza słów (RzWords), z atrapą storage.
-import { RzWords, cleanRound, norm } from '../src/rozejrzyj/words.js';
+import { RzWords, cleanRound, norm, MAX_ROUNDS } from '../src/rozejrzyj/words.js';
 
 export const rzTests = [];
 const test = (name, fn) => rzTests.push({ name: 'rozejrzyj: ' + name, fn });
@@ -12,7 +12,8 @@ function mkDO() {
     storage: {
       get: async k => structuredClone(store.get(k)),
       put: async (k, v) => { store.set(k, structuredClone(v)); },
-      list: async ({ prefix = '' } = {}) => new Map([...store].filter(([k]) => k.startsWith(prefix)).sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, v]) => [k, structuredClone(v)])),
+      list: async ({ prefix = '', limit = Infinity } = {}) => new Map([...store].filter(([k]) => k.startsWith(prefix)).sort(([a], [b]) => (a < b ? -1 : 1)).slice(0, limit).map(([k, v]) => [k, structuredClone(v)])),
+      delete: async k => { for (const x of [].concat(k)) store.delete(x); },
     },
   };
   const w = new RzWords(ctx, {});
@@ -101,4 +102,16 @@ test('nieznana trasa i zły JSON', async () => {
   assert((await call('GET', '/nic')).status === 404, '404');
   const res = await w.fetch(new Request('https://words/rounds', { method: 'POST', body: '{zły' }));
   assert(res.status === 400, '400');
+});
+
+test('limit rund: nadmiar kasuje najstarsze surowe rundy, liczniki zostają', async () => {
+  const { call, ctx } = mkDO();
+  const N = MAX_ROUNDS + 3;
+  for (let i = 0; i < N; i++) await call('POST', '/rounds', { letter: 'A', words: ['a' + i] });
+  const raw = [...ctx.store.keys()].filter(k => k.startsWith('r:'));
+  assert(raw.length === MAX_ROUNDS, 'surowych rund dokładnie MAX_ROUNDS, jest ' + raw.length);
+  const A = (await call('GET', '/stats')).json.letters.A;
+  assert(A.rounds === N, 'licznik agg nie cofa się po przycięciu');
+  const words = (await call('GET', '/export')).json.rounds.map(r => r.words[0]);
+  assert(!words.includes('a0') && words.includes('a' + (N - 1)), 'usunięte najstarsze, zostały najnowsze');
 });

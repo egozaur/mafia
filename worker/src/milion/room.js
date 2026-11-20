@@ -5,6 +5,7 @@
 // Mecz = 3 rundy po maks. 12 pytań. Błąd albo brak odpowiedzi w czasie = gracz odpada z rundy (zostaje publicznością).
 // Poprawna odpowiedź = kwota z drabinki + bonus za kolejność wśród poprawnych (1. +20%, 2. +10%, 3. +5%).
 // Wygrywa suma punktów z 3 rund. Koła ratunkowe (50:50, publiczność, zamiana) każdy gracz ma raz na rundę.
+import { limitMessage, ttlFor } from '../limits.js';
 
 export const ML_TTL = 24 * 60 * 60 * 1000;   // pokój bez aktywności znika po dobie
 export const LADDER = [500, 1000, 2000, 5000, 10000, 20000, 40000, 75000, 125000, 250000, 500000, 1000000];
@@ -97,7 +98,7 @@ export class MlRoom {
   async save() {
     const s = this.state;
     await this.ctx.storage.put('state', s);
-    await this.ctx.storage.setAlarm(s.phase === 'q' ? s.deadline : s.touchedAt + ML_TTL);
+    await this.ctx.storage.setAlarm(s.phase === 'q' ? s.deadline : s.touchedAt + ttlFor(s.phase === 'end', ML_TTL));
   }
 
   async fetch(req) {
@@ -119,7 +120,7 @@ export class MlRoom {
 
   async init(code) {
     const cur = await this.load();
-    if (cur && this.now() - cur.touchedAt < ML_TTL) return null;
+    if (cur && this.now() - cur.touchedAt < ttlFor(cur.phase === 'end', ML_TTL)) return null;
     this.state = { code, hostToken: token(), phase: 'lobby', time: 30, players: [], round: 0, qi: 0, deadline: 0,
       pool: null, seq: 0, saved: false, touchedAt: this.now() };
     await this.save();
@@ -133,6 +134,7 @@ export class MlRoom {
   }
 
   async webSocketMessage(ws, raw) {
+    if (limitMessage(this, ws)) return;
     if (typeof raw !== 'string' || raw.length > MAX_MSG) return this.send(ws, { t: 'error', err: 'Nieprawidłowa wiadomość.' });
     let msg;
     try { msg = JSON.parse(raw); } catch { return this.send(ws, { t: 'error', err: 'Nieprawidłowa wiadomość.' }); }
@@ -359,7 +361,7 @@ export class MlRoom {
       this.reveal();
       return this.commit();
     }
-    if (s.phase !== 'q' && this.now() - s.touchedAt >= ML_TTL) {
+    if (s.phase !== 'q' && this.now() - s.touchedAt >= ttlFor(s.phase === 'end', ML_TTL)) {
       for (const ws of this.ctx.getWebSockets()) try { ws.close(4404, 'expired'); } catch {}
       await this.ctx.storage.deleteAll();
       this.state = null;

@@ -6,9 +6,13 @@ compatibility_date = "2025-09-01"
 [vars]
 # Strony, z których wolno łączyć się z serwerem gry.
 ALLOWED_ORIGINS = "https://pl3y.pl,https://www.pl3y.pl,https://egozaur.github.io"
-# "true" pozwala łączyć się ze stron http://localhost:… (testy frontendu z prawdziwym serwerem).
-# To nie jest zabezpieczenie (każdy może wysłać dowolny Origin spoza przeglądarki), tylko filtr dla przeglądarek.
-ALLOW_LOCALHOST = "true"
+# "true" pozwala łączyć się ze stron http://localhost:… bez tokena testowego (tylko lokalny wrangler dev).
+# Na produkcji ma być "false": testy E2E z localhost (?server=prod) wchodzą na token testowy z sekretu PL3Y_TEST_SECRET.
+# Origin to nie zabezpieczenie (spoza przeglądarki da się go podać dowolnie); prawdziwą bramką jest token HMAC.
+ALLOW_LOCALHOST = "false"
+# Bramka autoryzacji: "off" (wyłączona) | "optional" (token sprawdzany, gdy jest) | "required" (bez ważnego tokena 401).
+# Sekrety (wrangler secret put): PL3Y_PASSWORD, PL3Y_TOKEN_SECRET, PL3Y_TEST_SECRET. Instrukcja: mafia/README.md.
+AUTH_MODE = "required"
 
 [[durable_objects.bindings]]
 name = "ROOMS"

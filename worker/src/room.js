@@ -3,6 +3,7 @@
 import { createState } from './engine/lobby.js';
 import { apply, GameError, joinRoom, rebindRoom, tick } from './engine/machine.js';
 import { viewForPlayer, viewForScreen } from './engine/view.js';
+import { limitMessage, ttlFor } from './limits.js';
 
 const ROOM_TTL = 24 * 60 * 60 * 1000;       // pokój bez aktywności znika po dobie
 const MAX_MSG = 4096;
@@ -38,7 +39,7 @@ export class Room {
   async schedule() {
     const s = this.state;
     if (!s) return;
-    let at = s.touchedAt + ROOM_TTL;
+    let at = s.touchedAt + ttlFor(s.phase === 'end', ROOM_TTL);
     if (!s.paused && s.endsAt) at = Math.min(at, s.endsAt);
     await this.ctx.storage.setAlarm(at);
   }
@@ -63,7 +64,7 @@ export class Room {
   // Zakłada pokój. null = kod zajęty przez aktywny pokój.
   async init(code) {
     const cur = await this.load();
-    if (cur && Date.now() - cur.touchedAt < ROOM_TTL) return null;
+    if (cur && Date.now() - cur.touchedAt < ttlFor(cur.phase === 'end', ROOM_TTL)) return null;
     const hostToken = randomToken();
     this.state = createState(code, hostToken, Date.now());
     await this.ctx.storage.put('state', this.state);
@@ -81,6 +82,7 @@ export class Room {
   }
 
   async webSocketMessage(ws, raw) {
+    if (limitMessage(this, ws)) return;
     if (typeof raw !== 'string' || raw.length > MAX_MSG) return this.send(ws, { t: 'error', err: 'Nieprawidłowa wiadomość.' });
     let msg;
     try { msg = JSON.parse(raw); } catch { return this.send(ws, { t: 'error', err: 'Nieprawidłowa wiadomość.' }); }
@@ -183,7 +185,7 @@ export class Room {
     const s = await this.load();
     if (!s) return;
     const now = Date.now();
-    if (now - s.touchedAt >= ROOM_TTL) {
+    if (now - s.touchedAt >= ttlFor(s.phase === 'end', ROOM_TTL)) {
       for (const ws of this.ctx.getWebSockets()) try { ws.close(4404, 'expired'); } catch {}
       await this.ctx.storage.deleteAll();
       this.state = null;

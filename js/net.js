@@ -38,6 +38,15 @@ class LocalSocket {
   }
 }
 
+// ---------- sesja ----------
+// Token sesji PL3Y: wydaje go serwer po podaniu hasła w bramce (/auth.js), tu tylko go odczytujemy.
+// Do zapytań HTTP idzie nagłówkiem Authorization, do WebSocketu parametrem ?tok= (przeglądarka nie ustawi nagłówka).
+const plToken = () => { try { const t = localStorage.getItem('pl3y_token'); return t && Number(localStorage.getItem('pl3y_token_exp')) > Date.now() ? t : ''; } catch (e) { return ''; } };
+const authHead = (h = {}) => { const t = plToken(); return t ? { ...h, Authorization: 'Bearer ' + t } : h; };
+const wsTok = () => { const t = plToken(); return t ? '?tok=' + encodeURIComponent(t) : ''; };
+// Serwer odrzucił sesję (401): pokaż bramkę hasła.
+const onAuthFail = r => { if (r.status === 401 && window.PL3Y && window.PL3Y.expired) window.PL3Y.expired(); };
+
 // ---------- tworzenie pokoju ----------
 export async function createRoom() {
   if (LOCAL) {
@@ -45,7 +54,8 @@ export async function createRoom() {
     const rid = 'r' + (++sharedSeq);
     return new Promise(res => { sharedHandlers.set(rid, m => { sharedHandlers.delete(rid); res(m); }); port.postMessage({ t: 'create', rid }); });
   }
-  const r = await fetch(API + '/api/rooms', { method: 'POST' });
+  const r = await fetch(API + '/api/rooms', { method: 'POST', headers: authHead() });
+  onAuthFail(r);
   if (!r.ok) throw new Error('Nie udało się założyć pokoju (' + r.status + ').');
   return r.json();
 }
@@ -75,7 +85,7 @@ export class Conn {
   connect() {
     if (this.stopped) return;
     this.setStatus(this.retry ? 'reconnecting' : 'connecting');
-    const ws = LOCAL ? new LocalSocket(this.o.code) : new WebSocket(API.replace(/^http/, 'ws') + '/api/rooms/' + encodeURIComponent(this.o.code) + '/ws');
+    const ws = LOCAL ? new LocalSocket(this.o.code) : new WebSocket(API.replace(/^http/, 'ws') + '/api/rooms/' + encodeURIComponent(this.o.code) + '/ws' + wsTok());
     this.ws = ws;
     ws.onopen = () => {
       this.retry = 0;
