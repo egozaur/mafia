@@ -1,45 +1,25 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Language
-
-Always respond to the user in Polish (zawsze odpowiadaj po polsku). UI text and code comments are in Polish.
+Always respond in Polish (zawsze odpowiadaj po polsku). UI text and code comments are in Polish.
 
 ## Project
 
-"Mafia" is a PL3Y party game: a host screen (TV/laptop, `index.html`) and private player phones (`play.html`). Unlike the other PL3Y games it has a **server**: a Cloudflare Worker with one Durable Object per room (`worker/`). The frontend is static (GitHub Pages, served at `https://pl3y.pl/mafia/`, no build step); the Worker is deployed by GitHub Actions (`.github/workflows/worker.yml`, secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`). There is no Node or Python on the dev machine.
+"Mafia": host screen (`index.html`, TV/laptop) + private player phones (`play.html`). Static frontend, no build step, served at `https://pl3y.pl/mafia/` (GitHub Pages). Server: Cloudflare Worker in `worker/`, one Durable Object per room, deployed by GitHub Actions (`.github/workflows/worker.yml`). No Node or Python on the dev machine.
+
+**The Worker `pl3y-server` is shared by all PL3Y games.** `worker/src/tajniacy/`, `worker/src/milion/`, `worker/src/rozejrzyj/` and their `worker/test/<game>.suite.js` belong to the other games and are documented in their own CLAUDE.md (sibling folders `../tajniacy`, `../milion`, `../rozejrzyj`); leave them alone when working on Mafia. Shared files: `worker/src/index.js` (routing for all games, origin allow-list `ALLOWED_ORIGINS`, plus localhost while `ALLOW_LOCALHOST="true"`) and `worker/wrangler.toml` (DO bindings; a new DO class needs a new `[[migrations]]` tag).
 
 ## Architecture
 
-- `worker/src/engine/*` — pure game engine, no I/O (time, RNG and token generator come in `ctx`). `machine.js` is the phase machine (`apply`, `tick`), with modules for roles, balance, lobby, deal, night, vote, victory and CHAOS events.
-- `worker/src/engine/view.js` is the **only** place that decides what leaves the server: `viewForScreen` (host/TV, never roles) and `viewForPlayer` (own role only while the envelope is open, own night task, own notes). Any new state field must be filtered here. Tests assert no leaks.
-- `worker/src/room.js` — Durable Object `Room` (plain class, runtime-agnostic): WebSocket hibernation, tokens (`hostToken`, per-player tokens, one-time rebind codes), dedup of action ids, alarms for timers. It clones state, applies the action and commits only on success.
-- `worker/src/index.js` — `POST /api/rooms`, `GET /api/rooms/:code/ws`, origin allow-list (`ALLOWED_ORIGINS`, plus localhost while `ALLOW_LOCALHOST="true"`).
-- **Shared PL3Y server**: the Worker is `pl3y-server` (`https://pl3y-server.pl3y.workers.dev`) and also hosts Tajniacy: `worker/src/tajniacy/room.js` (DO `TjRoom`: the host page is the source of truth and pushes `{t:'set', game, cfg}`; captains connect with per-team tokens and receive the board; one room serves many games, TTL 7 days; a `set` with `rotate:true` issues new captain tokens, closes the old captain sockets with 4401 before broadcasting the new board, and answers the host with `{t:'caps', cap, gameId}`) and `worker/src/tajniacy/saves.js` (DO `TjSaves`, singleton, shared saved-games list). Routes: `POST /api/tj/rooms`, `GET /api/tj/rooms/:code/ws`, `GET /api/tj/saves`, `PUT|DELETE /api/tj/saves/:id`. The Tajniacy client lives in the `egozaur/tajniacy` repo; keep both sides of the protocol in sync. Future PL3Y games with a server go here too.
-- **Milion** (quiz show, client in the `egozaur/milion` repo at `Documents/milion`): `worker/src/milion/room.js` (DO `MlRoom`). Unlike Tajniacy, the **server is the source of truth**: the host sends the question pool once (`{t:'start', time, pool}`, 3 rounds × 12 levels × `{m, s}` = main + spare question for the swap lifeline), then only `{t:'next'}` / `{t:'kick'}` / `{t:'reset'}`. Players join with `{t:'hello', join:nick}` (lobby only, max 12) or resume with `{t:'hello', player:token}`, and send `ans`, `life` (`f` 50:50, `a` audience, `s` swap; once per round each) and `vote` (eliminated players vote for an audience request). `hostView` / `playerView` are the only place that decides what leaves the server: the correct answer (`ok`) is sent only in the `reveal` phase. `hostView.sq` = the spare question shown on the TV when someone used the swap (`{ q, names, counts }`, `ok`/`counts` only at reveal). Phases `lobby → q → reveal → … → roundEnd → … → end`; the DO alarm ends a question at `deadline` (time + `GRACE`). Scoring: ladder amount + order bonus among correct answers (`BONUS` 20/10/5%); a wrong or missing answer eliminates the player for the round; 3 rounds, highest total wins. At `end` the room posts the results to `worker/src/milion/scores.js` (DO `MlScores`, singleton ranking: `solo`, `multi`, `wins`). Routes: `POST /api/ml/rooms`, `GET /api/ml/rooms/:code/ws`, `GET /api/ml/scores`, `POST /api/ml/scores` (solo result only, with `lvl` e/n/x = difficulty, missing = n; top 50 kept per difficulty; multi results can't be posted from outside). Milion's `dev/local.js` imports these two classes directly, so keep them runtime-agnostic.
-- **Rozejrzyj się** (word game on one computer, client in the `egozaur/rozejrzyj` repo at `Documents/rozejrzyj`): `worker/src/rozejrzyj/words.js` (DO `RzWords`, singleton, runtime-agnostic: the client's `?local=1` mode imports it directly). It is only a shared word database, with no rooms. Storage keys:
-  - `r:<id>`: raw rounds `{letter, words, ts}`, never changed;
-  - `agg:<L>`: per-letter counters `{rounds, first, all}`, updated on each POST;
-  - `alias`: merges, applied on read, so reversible;
-  - `learned`: words accepted in games.
-
-  Routes:
-  - `GET /api/rz/stats`
-  - `POST /api/rz/rounds` `{letter, words}` (letter from the pool, ≤ 60 words, each ≤ 40 chars, starts with the letter, no duplicates after `norm`)
-  - `PUT /api/rz/alias` `{from, to}` (same first letter, no chains)
-  - `DELETE /api/rz/alias/:word`
-  - `GET /api/rz/export`
-
-  The Worker allows only those methods per route and caps the body at 8 kB. Tests: `worker/test/rozejrzyj.suite.js`.
-- `js/net.js` — client connection (WebSocket or local SharedWorker), reconnect with backoff, heartbeat, pending actions re-sent after reconnect.
-- `js/host/*` — TV views (wizard, lobby, board, phases, results); `js/player/*` — phone views (join, envelope, night, screens). Views are string templates; regions are updated with `setHTML()` only when the HTML changes, so CSS animations don't restart.
-- `js/config.js` — `API` (Worker URL). **Empty = local mode**: `dev/server.js` runs the same `Room` class in a SharedWorker, so the game works across tabs of one browser without Cloudflare.
-- `index.html` loads the shared PL3Y password gate `/auth.js`; `play.html` loads it too, with `data-no-idle` (no 30-minute idle expiry mid-game; see the lobby CLAUDE.md).
-- Both pages carry the shared PL3Y app meta tags (see the lobby's CLAUDE.md). In the home-screen app there is no browser Back button, so on the phone the header gets a „← Lobby” button (`.tolobby`, `data-act="home"`, only when `APP`) that returns to `/` after a confirm; the player token stays in localStorage, so rescanning the code resumes the game.
+- `worker/src/engine/*`: pure game engine, no I/O (time, RNG, token generator come in `ctx`). `machine.js` = phase machine (`apply`, `tick`); modules for roles, balance, lobby, deal, night, vote, victory, CHAOS events.
+- `worker/src/engine/view.js` is the **only** place that decides what leaves the server: `viewForScreen` (TV, never roles) and `viewForPlayer` (own role only while the envelope is open, own night task, own notes). Every new state field must be filtered here; tests assert no leaks.
+- `worker/src/room.js`: DO `Room` (plain class, runtime-agnostic): WebSocket hibernation, tokens (`hostToken`, per-player, one-time rebind codes), action-id dedup, alarms for timers. Clones state, applies the action, commits only on success. Routes: `POST /api/rooms`, `GET /api/rooms/:code/ws`.
+- `js/net.js`: client connection (WebSocket or local SharedWorker), reconnect with backoff, heartbeat, pending actions re-sent after reconnect.
+- `js/host/*` TV views (wizard, lobby, board, phases, results); `js/player/*` phone views (join, envelope, night, screens). String templates; regions updated by `setHTML()` only when HTML changes, so CSS animations don't restart.
+- `js/config.js`: `API` (Worker URL). **Empty = local mode**: `dev/server.js` runs the same `Room` in a SharedWorker, so the game works across tabs without Cloudflare.
+- Both pages load the shared password gate `/auth.js` (`play.html` with `data-no-idle`) and the PL3Y app meta tags (see `../egozaur.github.io/CLAUDE.md`). In the home-screen app the phone header gets „← Lobby” (`.tolobby`, `data-act="home"`, only when `APP`); the player token stays in localStorage, so rescanning resumes the game.
 
 ## Testing
 
-- Engine + room protocol: `worker/test/suite.js`, `worker/test/room.suite.js`, Tajniacy server: `worker/test/tajniacy.suite.js`, Milion server: `worker/test/milion.suite.js`, Rozejrzyj server: `worker/test/rozejrzyj.suite.js`. CI runs `node --test worker/test/engine.test.js`. Locally open `worker/test/run.html` in headless Edge with `--allow-file-access-from-files` (prints `RESULT:PASS`).
-- Sandbox for solo testing: `dev/podglad.html` (host + N phones, bots, `?demo` plays a whole game). Pages forced into local mode with `?local=1`; the host then appends `&local=1` to player links and stores its room under `mafia_host_local`.
-- End-to-end UI: start `dev/serve.ps1` (PowerShell static server, keep it ASCII-only — PS 5.1 reads it as ANSI), open `http://localhost:8080/dev/e2e.html?n=7&games=2`. It drives the real buttons in iframes (host + N phones), plays full games and checks the DOM for role leaks. Run it in **real time** (headless Edge with `--enable-logging=stderr`, read `E2E RESULT`), not with `--virtual-time-budget`: virtual time skews the page clocks against the SharedWorker and gives false timeouts. `?stopAt=<phase>&view=host|phone` freezes on a phase for screenshots.
+- Mafia tests: `worker/test/suite.js` (engine), `worker/test/room.suite.js` (room protocol). CI runs `node --test worker/test/engine.test.js` (all games' suites). Locally: `worker/test/run.html` in headless Edge with `--allow-file-access-from-files` → `RESULT:PASS`.
+- Solo sandbox: `dev/podglad.html` (host + N phones, bots, `?demo` plays a whole game). `?local=1` forces local mode; the host appends `&local=1` to player links and stores its room under `mafia_host_local`.
+- E2E: run `dev/serve.ps1` (keep it ASCII-only, PS 5.1 reads it as ANSI), open `http://localhost:8080/dev/e2e.html?n=7&games=2`. Drives real buttons in iframes and checks the DOM for role leaks. Run in **real time** (headless Edge, `--enable-logging=stderr`, read `E2E RESULT`), not `--virtual-time-budget` (false timeouts). `?stopAt=<phase>&view=host|phone` freezes a phase for screenshots.
