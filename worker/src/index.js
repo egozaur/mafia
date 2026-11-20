@@ -1,12 +1,13 @@
-// Wspólny serwer gier PL3Y: Mafia, Tajniacy i Milion. Tworzenie pokojów, połączenia WebSocket do Durable Objects
+// Wspólny serwer gier PL3Y: Mafia, Tajniacy, Milion i Rozejrzyj się. Tworzenie pokojów, połączenia WebSocket do Durable Objects
 // i wspólna lista zapisanych gier Tajniaków.
 import { Room } from './room.js';
 import { TjRoom } from './tajniacy/room.js';
 import { TjSaves } from './tajniacy/saves.js';
 import { MlRoom } from './milion/room.js';
 import { MlScores } from './milion/scores.js';
+import { RzWords } from './rozejrzyj/words.js';
 
-export { Room, TjRoom, TjSaves, MlRoom, MlScores };
+export { Room, TjRoom, TjSaves, MlRoom, MlScores, RzWords };
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // bez 0/O, 1/I
 const CODE_LEN = 5;
@@ -94,6 +95,18 @@ export default {
       const init = { method: req.method, headers: { 'Content-Type': 'application/json' } };
       if (req.method === 'POST') init.body = (await req.text()).slice(0, 2000);
       return cors(origin, await stub.fetch('https://scores' + (req.method === 'POST' ? '/solo' : '/'), init));
+    }
+
+    // ---------- Rozejrzyj się (gra na jednym komputerze; tylko wspólna baza słów) ----------
+    m = url.pathname.match(/^\/api\/rz\/(stats|export|rounds|alias(?:\/[^/]{1,200})?)$/);
+    if (m) {
+      if (!origin) return new Response('Forbidden', { status: 403 });
+      const ok = { stats: ['GET'], export: ['GET'], rounds: ['POST'], alias: ['PUT'] }[m[1]] || (m[1].startsWith('alias/') ? ['DELETE'] : []);
+      if (!ok.includes(req.method)) return cors(origin, new Response('Method not allowed', { status: 405 }));
+      const stub = env.RZ_WORDS.get(env.RZ_WORDS.idFromName('words'));
+      const init = { method: req.method, headers: { 'Content-Type': 'application/json' } };
+      if (req.method === 'POST' || req.method === 'PUT') init.body = (await req.text()).slice(0, 8000);
+      return cors(origin, await stub.fetch('https://words/' + m[1], init));
     }
 
     return new Response('Not found', { status: 404 });

@@ -4,5 +4,6 @@ import { tests } from './suite.js';
 import { roomTests } from './room.suite.js';
 import { tjTests } from './tajniacy.suite.js';
 import { mlTests } from './milion.suite.js';
+import { rzTests } from './rozejrzyj.suite.js';
 
-for (const t of [...tests, ...roomTests, ...tjTests, ...mlTests]) test(t.name, t.fn);
+for (const t of [...tests, ...roomTests, ...tjTests, ...mlTests, ...rzTests]) test(t.name, t.fn);
