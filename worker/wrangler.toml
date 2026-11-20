@@ -1,4 +1,4 @@
-# Wspólny serwer gier PL3Y (Mafia + Tajniacy). Kod mieszka w repo mafia.
+# Wspólny serwer gier PL3Y (Mafia + Tajniacy + Milion). Kod mieszka w repo mafia.
 name = "pl3y-server"
 main = "src/index.js"
 compatibility_date = "2025-09-01"
@@ -22,6 +22,14 @@ class_name = "TjRoom"
 name = "TJ_SAVES"
 class_name = "TjSaves"
 
+[[durable_objects.bindings]]
+name = "ML_ROOMS"
+class_name = "MlRoom"
+
+[[durable_objects.bindings]]
+name = "ML_SCORES"
+class_name = "MlScores"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Room"]
@@ -29,6 +37,10 @@ new_sqlite_classes = ["Room"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["TjRoom", "TjSaves"]
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["MlRoom", "MlScores"]
 
 [observability]
 enabled = true

@@ -1,10 +1,12 @@
-// Wspólny serwer gier PL3Y: Mafia i Tajniacy. Tworzenie pokojów, połączenia WebSocket do Durable Objects
+// Wspólny serwer gier PL3Y: Mafia, Tajniacy i Milion. Tworzenie pokojów, połączenia WebSocket do Durable Objects
 // i wspólna lista zapisanych gier Tajniaków.
 import { Room } from './room.js';
 import { TjRoom } from './tajniacy/room.js';
 import { TjSaves } from './tajniacy/saves.js';
+import { MlRoom } from './milion/room.js';
+import { MlScores } from './milion/scores.js';
 
-export { Room, TjRoom, TjSaves };
+export { Room, TjRoom, TjSaves, MlRoom, MlScores };
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // bez 0/O, 1/I
 const CODE_LEN = 5;
@@ -79,6 +81,19 @@ export default {
       const init = { method: req.method, headers: { 'Content-Type': 'application/json' } };
       if (req.method === 'PUT') init.body = await req.text();
       return cors(origin, await stub.fetch('https://saves' + (m[1] || '/'), init));
+    }
+
+    // ---------- Milion ----------
+    if (url.pathname === '/api/ml/rooms' && req.method === 'POST') return createRoom(env.ML_ROOMS, origin);
+    m = url.pathname.match(/^\/api\/ml\/rooms\/([A-Za-z0-9]+)\/ws$/);
+    if (m) return roomSocket(env.ML_ROOMS, req, origin, m[1]);
+    // Z zewnątrz tylko odczyt rankingu i wynik solo; wyniki meczów multi zapisuje sam pokój (MlRoom).
+    if (url.pathname === '/api/ml/scores' && (req.method === 'GET' || req.method === 'POST')) {
+      if (!origin) return new Response('Forbidden', { status: 403 });
+      const stub = env.ML_SCORES.get(env.ML_SCORES.idFromName('scores'));
+      const init = { method: req.method, headers: { 'Content-Type': 'application/json' } };
+      if (req.method === 'POST') init.body = (await req.text()).slice(0, 2000);
+      return cors(origin, await stub.fetch('https://scores' + (req.method === 'POST' ? '/solo' : '/'), init));
     }
 
     return new Response('Not found', { status: 404 });
