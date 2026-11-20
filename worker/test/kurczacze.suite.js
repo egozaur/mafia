@@ -313,6 +313,11 @@ test('ruch domyślny po czasie: wybór Cudu, odrzucenie karty, wybór Odkrycia',
 });
 
 // ---------- pokój ----------
+test('serwer: index.js eksportuje KiRoom (wymagane przez wrangler.toml przy wdrożeniu)', async () => {
+  const W = await import('../src/index.js');
+  assert(W.KiRoom === KiRoom, 'brak eksportu KiRoom');
+});
+
 class WS {
   constructor() { this.open = true; this.out = []; this.att = null; this.closed = null; }
   send(d) { if (this.open) this.out.push(JSON.parse(d)); }

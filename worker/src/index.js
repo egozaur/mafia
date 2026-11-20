@@ -6,8 +6,9 @@ import { TjSaves } from './tajniacy/saves.js';
 import { MlRoom } from './milion/room.js';
 import { MlScores } from './milion/scores.js';
 import { RzWords } from './rozejrzyj/words.js';
+import { KiRoom } from './kurczacze/room.js';
 
-export { Room, TjRoom, TjSaves, MlRoom, MlScores, RzWords };
+export { Room, TjRoom, TjSaves, MlRoom, MlScores, RzWords, KiRoom };
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // bez 0/O, 1/I
 const CODE_LEN = 5;
