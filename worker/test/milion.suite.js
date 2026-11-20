@@ -184,10 +184,15 @@ test('koła: 50:50 zostawia poprawną, zamiana daje zapasowe, raz na rundę', as
   assert(me(ps[0]).ans === null, 'nie można kliknąć usuniętej');
   await send(room, ps[1], { t: 'life', k: 's' });
   assert(ps[1].view().q.q.includes('zapas') && !ps[0].view().q.q.includes('zapas'), 'zamiana tylko u siebie');
+  assert(host.view().sq && host.view().sq.q.ok === undefined, 'TV: zapasowe bez poprawnej przed odsłonięciem');
   await send(room, ps[0], { t: 'ans', i: okOf(0) });
   await send(room, ps[1], { t: 'ans', i: (0 + 1) % 4 });   // poprawna zapasowego
   assert(me(ps[1]).correct, 'liczy się zapasowe pytanie');
+  const hv = host.view();
+  assert(hv.sq && hv.sq.q.q.includes('zapas') && hv.sq.q.ok === 1 && hv.sq.names.join() === 'Gracz1', 'TV: zapasowe z poprawną przy odsłonięciu');
+  assert(hv.sq.counts[1] === 1 && hv.counts[1] === 0, 'TV: osobne liczniki odpowiedzi');
   await send(room, host, { t: 'next' });
+  assert(!host.view().sq, 'TV: bez zamiany brak sq');
   await send(room, ps[0], { t: 'life', k: 'f' });
   assert(!me(ps[0]).fifty.length && !me(ps[0]).life.f, 'drugi raz w rundzie nie działa');
 });
@@ -253,4 +258,18 @@ test('ranking: solo (walidacja, sortowanie, limit), multi, wygrane', async () =>
   assert(j.solo.length === TOP && j.solo[0].nick === 'Ola' && j.solo[1].nick === 'Ala', 'solo');
   assert(j.multi[0].pts === 7000 && j.multi.length === 3, 'multi (bez absurdalnych wyników)');
   assert(j.wins[0].nick === 'Ala' && j.wins[0].n === 2, 'wygrane');
+  assert(j.solo.every(e => e.lvl === 'n'), 'bez poziomu = normalny');
+});
+
+test('ranking solo: osobne listy i miejsca dla poziomów', async () => {
+  const s = mkScores();
+  for (let i = 0; i < TOP + 3; i++) await req(s, 'POST', '/solo', { nick: 'N' + i, amount: 1000, qs: 2, lvl: 'n' });
+  const r = await req(s, 'POST', '/solo', { nick: 'Ex', amount: 500, qs: 1, lvl: 'x' });
+  assert(r.j.rank === 1, 'pierwsze miejsce na ekstremalnym: ' + r.j.rank);
+  await req(s, 'POST', '/solo', { nick: 'Ea', amount: 2000, qs: 3, lvl: 'e' });
+  await req(s, 'POST', '/solo', { nick: 'Zly', amount: 2000, qs: 3, lvl: 'zzz' });
+  const { j } = await req(s, 'GET', '/');
+  const of = l => j.solo.filter(e => e.lvl === l);
+  assert(of('n').length === TOP && of('x').length === 1 && of('e').length === 1, 'limit na poziom');
+  assert(!j.solo.some(e => e.nick === 'Zly'), 'zły poziom odrzucony');
 });

@@ -1,11 +1,13 @@
 // Durable Object „MlScores”: wspólny ranking teleturnieju Milion (jeden obiekt na cały PL3Y).
-// solo:  [{ nick, amount, qs, ts }]  — najwyższe wygrane (wpis wysyła przeglądarka, walidacja zakresu)
+// solo:  [{ nick, amount, qs, lvl, ts }] — najwyższe wygrane, TOP osobno dla każdego poziomu trudności
+//         (lvl: e łatwy, n normalny, x ekstremalny; stare wpisy bez lvl = n). Wpis wysyła przeglądarka, walidacja zakresu.
 // multi: [{ nick, pts, ts }]         — najwyższe sumy punktów z meczów (wpisy wysyła tylko MlRoom)
 // wins:  { nick: liczba wygranych meczów }
 
 import { LADDER } from './room.js';
 
 export const TOP = 50;
+export const LEVELS = ['e', 'n', 'x'];
 const MAX_WINS = 500;
 const MAX_PTS = LADDER.reduce((a, b) => a + b, 0) * 1.2 * 3;   // 3 rundy, zawsze pierwszy
 
@@ -17,7 +19,9 @@ export function cleanSolo(e) {
   const amount = Number(e.amount), qs = Number(e.qs);
   if (!nick || !Number.isInteger(qs) || qs < 0 || qs > LADDER.length) return null;
   if (amount !== 0 && !LADDER.includes(amount)) return null;
-  return { nick, amount, qs, ts: Date.now() };
+  const lvl = e.lvl == null ? 'n' : e.lvl;
+  if (!LEVELS.includes(lvl)) return null;
+  return { nick, amount, qs, lvl, ts: Date.now() };
 }
 
 export class MlScores {
@@ -40,9 +44,10 @@ export class MlScores {
     if (url.pathname === '/solo') {
       const e = cleanSolo(body);
       if (!e) return json({ err: 'Nieprawidłowy wynik.' }, 400);
-      d.solo = [...d.solo, e].sort((a, b) => b.amount - a.amount || b.qs - a.qs || a.ts - b.ts).slice(0, TOP);
+      const all = [...d.solo.map(x => x.lvl ? x : { ...x, lvl: 'n' }), e].sort((a, b) => b.amount - a.amount || b.qs - a.qs || a.ts - b.ts);
+      d.solo = LEVELS.flatMap(l => all.filter(x => x.lvl === l).slice(0, TOP));
       await this.ctx.storage.put('data', d);
-      return json({ ok: true, rank: d.solo.indexOf(d.solo.find(x => x === e)) + 1 });
+      return json({ ok: true, rank: d.solo.filter(x => x.lvl === e.lvl).indexOf(e) + 1 });
     }
     if (url.pathname === '/multi') {
       const list = Array.isArray(body && body.entries) ? body.entries.slice(0, 12) : [];

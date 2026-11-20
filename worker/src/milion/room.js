@@ -387,6 +387,13 @@ export class MlRoom {
       const q = s.pool[s.round][s.qi].m;
       v.q = open ? { ...pub(q), ok: q.ok } : pub(q);
       if (open) { const c = [0, 0, 0, 0]; s.players.forEach(p => { if (p.ans != null && !p.swap && (p.outQ === s.qi || !p.out)) c[p.ans]++; }); v.counts = c; }
+      // Gracze po „zamianie pytania” mają wspólne pytanie zapasowe: TV pokazuje je osobno (poprawna też dopiero przy odsłonięciu).
+      const sw = s.players.filter(p => p.swap && (!p.out || p.outQ === s.qi));
+      if (sw.length) {
+        const sq = s.pool[s.round][s.qi].s;
+        v.sq = { q: open ? { ...pub(sq), ok: sq.ok } : pub(sq), names: sw.map(p => p.name) };
+        if (open) { const c = [0, 0, 0, 0]; sw.forEach(p => { if (p.ans != null) c[p.ans]++; }); v.sq.counts = c; }
+      }
     }
     return v;
   }
