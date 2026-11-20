@@ -1,4 +1,4 @@
-// Wspólny serwer gier PL3Y: Mafia, Tajniacy, Milion i Rozejrzyj się. Tworzenie pokojów, połączenia WebSocket do Durable Objects
+// Wspólny serwer gier PL3Y: Mafia, Tajniacy, Milion, Rozejrzyj się i Kurczacze Imperium. Tworzenie pokojów, połączenia WebSocket do Durable Objects
 // i wspólna lista zapisanych gier Tajniaków.
 import { Room } from './room.js';
 import { TjRoom } from './tajniacy/room.js';
@@ -96,6 +96,11 @@ export default {
       if (req.method === 'POST') init.body = (await req.text()).slice(0, 2000);
       return cors(origin, await stub.fetch('https://scores' + (req.method === 'POST' ? '/solo' : '/'), init));
     }
+
+    // ---------- Kurczacze Imperium (2 graczy, serwer pilnuje zasad) ----------
+    if (url.pathname === '/api/ki/rooms' && req.method === 'POST') return createRoom(env.KI_ROOMS, origin);
+    m = url.pathname.match(/^\/api\/ki\/rooms\/([A-Za-z0-9]+)\/ws$/);
+    if (m) return roomSocket(env.KI_ROOMS, req, origin, m[1]);
 
     // ---------- Rozejrzyj się (gra na jednym komputerze; tylko wspólna baza słów) ----------
     m = url.pathname.match(/^\/api\/rz\/(stats|export|rounds|alias(?:\/[^/]{1,200})?)$/);

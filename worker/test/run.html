@@ -10,7 +10,8 @@ import { roomTests } from './room.suite.js';
 import { tjTests } from './tajniacy.suite.js';
 import { mlTests } from './milion.suite.js';
 import { rzTests } from './rozejrzyj.suite.js';
-const tests = [...engine, ...roomTests, ...tjTests, ...mlTests, ...rzTests];
+import { kiTests } from './kurczacze.suite.js';
+const tests = [...engine, ...roomTests, ...tjTests, ...mlTests, ...rzTests, ...kiTests];
 const lines = []; let fails = 0;
 const t0 = performance.now();
 for (const t of tests) {

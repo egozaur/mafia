@@ -1,0 +1,231 @@
+// Durable Object „KiRoom”: pokój Kurczaczego Imperium dla 2 graczy w osobnych przeglądarkach. Serwer jest źródłem
+// prawdy: trzyma pełny stan gry (engine.js), sprawdza każdy ruch i każdemu graczowi wysyła tylko jego widok
+// (bez zakrytych kart i talii w pudełku). Limit czasu tury pilnuje alarm DO (po czasie: ruch domyślny).
+//
+// Protokół (JSON przez WebSocket):
+//   → {t:'hello', join:nick} (wolne miejsce) | {t:'hello', player:token} (powrót)   ← {t:'welcome', seat, token}
+//   → {t:'cfg', time} (gospodarz, w lobby) · {t:'start'} (gospodarz, 2 graczy) · {t:'move', act, id?} · {t:'rematch'}
+//   ← {t:'state', view} po każdej zmianie · {t:'error', code, err}
+import * as E from './engine.js';
+
+export const KI_TTL = 3 * 24 * 60 * 60 * 1000;   // pokój bez aktywności znika po 3 dniach
+export const GRACE = 1000;                        // zapas na opóźnienie sieci po upływie czasu tury (ms)
+const MAX_MSG = 4000;
+
+const token = (bytes = 16) => [...crypto.getRandomValues(new Uint8Array(bytes))].map(b => b.toString(16).padStart(2, '0')).join('');
+const seed = () => crypto.getRandomValues(new Uint32Array(1))[0];
+const cleanName = n => String(n || '').replace(/\s+/g, ' ').trim().slice(0, 16);
+
+export class KiRoom {
+  constructor(ctx, env) {
+    this.ctx = ctx;
+    this.env = env || {};
+    this.state = undefined;
+    this.now = () => Date.now();
+    this.seed = seed;
+    if (typeof WebSocketRequestResponsePair !== 'undefined') {
+      ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"t":"ping"}', '{"t":"pong"}'));
+    }
+  }
+
+  async load() {
+    if (this.state === undefined) this.state = (await this.ctx.storage.get('state')) || null;
+    return this.state;
+  }
+
+  async save() {
+    const s = this.state;
+    await this.ctx.storage.put('state', s);
+    await this.ctx.storage.setAlarm(s.deadline ? Math.min(s.deadline, s.touchedAt + KI_TTL) : s.touchedAt + KI_TTL);
+  }
+
+  async fetch(req) {
+    const url = new URL(req.url);
+    if (url.pathname === '/init' && req.method === 'POST') {
+      const { code } = await req.json();
+      const out = await this.init(code);
+      return out ? Response.json(out) : new Response('taken', { status: 409 });
+    }
+    if (req.headers.get('Upgrade') === 'websocket') {
+      const s = await this.load();
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+      this.attach(server, s);
+      return new Response(null, { status: 101, webSocket: client });
+    }
+    return new Response('Not found', { status: 404 });
+  }
+
+  async init(code) {
+    const cur = await this.load();
+    if (cur && this.now() - cur.touchedAt < KI_TTL) return null;
+    this.state = { code, seats: [null, null], time: 0, game: null, deadline: 0, games: 0, touchedAt: this.now() };
+    await this.save();
+    return { code };
+  }
+
+  attach(ws, s) {
+    this.ctx.acceptWebSocket(ws);
+    ws.serializeAttachment({ kind: 'guest' });
+    if (!s) { this.send(ws, { t: 'error', code: 'noroom', err: 'Taki pokój nie istnieje albo wygasł.' }); ws.close(4404, 'noroom'); }
+  }
+
+  async webSocketMessage(ws, raw) {
+    if (typeof raw !== 'string' || raw.length > MAX_MSG) return this.send(ws, { t: 'error', err: 'Nieprawidłowa wiadomość.' });
+    let msg;
+    try { msg = JSON.parse(raw); } catch { return this.send(ws, { t: 'error', err: 'Nieprawidłowa wiadomość.' }); }
+    if (!msg || typeof msg !== 'object') return;
+    const s = await this.load();
+    if (!s) { this.send(ws, { t: 'error', code: 'noroom', err: 'Taki pokój nie istnieje albo wygasł.' }); return ws.close(4404, 'noroom'); }
+    if (msg.t === 'ping') return this.send(ws, { t: 'pong' });
+    if (msg.t === 'hello') return this.hello(ws, msg);
+    const att = ws.deserializeAttachment() || {};
+    if (att.kind !== 'player' || !s.seats[att.seat]) return this.send(ws, { t: 'error', code: 'nohello', err: 'Najpierw się przywitaj.' });
+    const seat = att.seat;
+    if (msg.t === 'cfg') return this.cfg(ws, seat, msg);
+    if (msg.t === 'start') return this.start(ws, seat);
+    if (msg.t === 'move') return this.move(ws, seat, msg);
+    if (msg.t === 'rematch') return this.rematch(ws, seat);
+  }
+
+  async webSocketClose(ws) {
+    try { ws.serializeAttachment({ kind: 'closed' }); } catch {}
+    if (await this.load()) this.broadcast();
+  }
+  async webSocketError(ws) { return this.webSocketClose(ws); }
+
+  async hello(ws, msg) {
+    const s = this.state;
+    if (typeof msg.player === 'string' && msg.player) {
+      const seat = s.seats.findIndex(x => x && x.token === msg.player);
+      if (seat >= 0) {
+        ws.serializeAttachment({ kind: 'player', seat });
+        this.send(ws, { t: 'welcome', seat, token: s.seats[seat].token });
+        return this.broadcast();
+      }
+      if (msg.join == null) return this.send(ws, { t: 'error', code: 'badplayer', err: 'Nie ma Cię w tym pokoju.' });
+    }
+    if (msg.join != null) {
+      const seat = s.seats.findIndex(x => !x);
+      if (seat < 0) return this.send(ws, { t: 'error', code: 'full', err: 'Pokój jest pełny: grają już dwie osoby.' });
+      let name = cleanName(msg.join);
+      if (!name) return this.send(ws, { t: 'error', code: 'noname', err: 'Wpisz swój nick.' });
+      const other = s.seats[1 - seat];
+      if (other && other.name.toLowerCase() === name.toLowerCase()) name = name.slice(0, 14) + ' 2';
+      s.seats[seat] = { name, token: token(12) };
+      ws.serializeAttachment({ kind: 'player', seat });
+      this.send(ws, { t: 'welcome', seat, token: s.seats[seat].token });
+      return this.commit();
+    }
+    this.send(ws, { t: 'error', code: 'badhello', err: 'Nieprawidłowe powitanie.' });
+  }
+
+  // Gospodarz (miejsce 0) ustawia limit czasu tury w lobby albo po zakończonej grze.
+  async cfg(ws, seat, msg) {
+    const s = this.state;
+    if (seat !== 0) return this.send(ws, { t: 'error', code: 'nothost', err: 'Ustawienia zmienia gospodarz pokoju.' });
+    if (s.game && s.game.phase !== 'end') return this.send(ws, { t: 'error', code: 'phase', err: 'Gra już trwa.' });
+    const time = Number(msg.time);
+    if (!E.TIMES.includes(time)) return this.send(ws, { t: 'error', code: 'badcfg', err: 'Nieprawidłowy limit czasu.' });
+    s.time = time;
+    await this.commit();
+  }
+
+  async start(ws, seat) {
+    const s = this.state;
+    if (seat !== 0) return this.send(ws, { t: 'error', code: 'nothost', err: 'Grę zaczyna gospodarz pokoju.' });
+    if (s.game && s.game.phase !== 'end') return this.send(ws, { t: 'error', code: 'phase', err: 'Gra już trwa.' });
+    if (!s.seats[1]) return this.send(ws, { t: 'error', code: 'alone', err: 'Poczekaj na drugiego gracza.' });
+    s.game = E.setup(this.seed(), s.seats.map(x => x.name));
+    s.games++;
+    s.lastMove = null;
+    this.arm();
+    await this.commit();
+  }
+
+  // Rewanż: nowa gra z tymi samymi graczami (każdy z nich może kliknąć po końcu gry).
+  async rematch(ws, seat) {
+    const s = this.state;
+    if (!s.game || s.game.phase !== 'end') return this.send(ws, { t: 'error', code: 'phase', err: 'Gra jeszcze trwa.' });
+    return this.start(ws, 0);
+  }
+
+  async move(ws, seat, msg) {
+    const s = this.state;
+    if (!s.game) return this.send(ws, { t: 'error', code: 'phase', err: 'Gra jeszcze się nie zaczęła.' });
+    // Ponowione wysłanie tego samego ruchu (po zerwaniu połączenia) jest ignorowane.
+    if (msg.id != null && s.lastMove && s.lastMove.seat === seat && s.lastMove.id === msg.id) return this.broadcast();
+    const g = structuredClone(s.game);
+    const res = E.apply(g, seat, msg.act);
+    if (res.err) return this.send(ws, { t: 'error', code: 'move', err: res.err });
+    s.game = g;
+    s.lastMove = msg.id != null ? { seat, id: String(msg.id).slice(0, 40) } : null;
+    this.arm();
+    await this.commit();
+  }
+
+  // Ustawia termin ruchu, gdy zmienił się gracz, który ma działać (albo gra się skończyła).
+  arm() {
+    const s = this.state, g = s.game;
+    const who = g ? E.actor(g) : null;
+    if (!s.time || who == null) { s.deadline = 0; s.armedFor = null; return; }
+    const key = `${who}:${g.turnNo}:${g.pending.length}`;
+    if (s.armedFor === key && s.deadline) return;
+    s.armedFor = key;
+    s.deadline = this.now() + s.time * 1000 + GRACE;
+  }
+
+  async alarm() {
+    const s = await this.load();
+    if (!s) return;
+    if (s.deadline && this.now() >= s.deadline && s.game && s.game.phase !== 'end') {
+      const g = structuredClone(s.game);
+      E.timeoutMove(g);
+      s.game = g;
+      s.deadline = 0; s.armedFor = null;
+      this.arm();
+      return this.commit();
+    }
+    if (this.now() - s.touchedAt >= KI_TTL) {
+      for (const ws of this.ctx.getWebSockets()) try { ws.close(4404, 'expired'); } catch {}
+      await this.ctx.storage.deleteAll();
+      this.state = null;
+      return;
+    }
+    await this.save();
+  }
+
+  async commit() {
+    this.state.touchedAt = this.now();
+    await this.save();
+    this.broadcast();
+  }
+
+  send(ws, obj) { try { ws.send(JSON.stringify(obj)); } catch {} }
+
+  connected() {
+    const on = [false, false];
+    for (const ws of this.ctx.getWebSockets()) { const a = ws.deserializeAttachment(); if (a && a.kind === 'player') on[a.seat] = true; }
+    return on;
+  }
+
+  viewFor(seat, on) {
+    const s = this.state;
+    return {
+      code: s.code, seat, time: s.time, games: s.games,
+      seats: s.seats.map((x, i) => (x ? { name: x.name, on: on[i] } : null)),
+      left: s.deadline ? Math.max(0, s.deadline - this.now() - GRACE) : 0,
+      game: s.game ? E.view(s.game, seat) : null,
+    };
+  }
+
+  broadcast() {
+    const s = this.state;
+    if (!s) return;
+    const on = this.connected();
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment() || {};
+      if (a.kind === 'player' && s.seats[a.seat]) this.send(ws, { t: 'state', view: this.viewFor(a.seat, on) });
+    }
+  }
+}

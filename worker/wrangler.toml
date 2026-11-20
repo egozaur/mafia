@@ -1,4 +1,4 @@
-# Wspólny serwer gier PL3Y (Mafia + Tajniacy + Milion + Rozejrzyj się). Kod mieszka w repo mafia.
+# Wspólny serwer gier PL3Y (Mafia + Tajniacy + Milion + Rozejrzyj się + Kurczacze Imperium). Kod mieszka w repo mafia.
 name = "pl3y-server"
 main = "src/index.js"
 compatibility_date = "2025-09-01"
@@ -49,6 +49,14 @@ class_name = "RzWords"
 [[migrations]]
 tag = "v4"
 new_sqlite_classes = ["RzWords"]
+
+[[durable_objects.bindings]]
+name = "KI_ROOMS"
+class_name = "KiRoom"
+
+[[migrations]]
+tag = "v5"
+new_sqlite_classes = ["KiRoom"]
 
 [observability]
 enabled = true

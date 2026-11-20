@@ -6,7 +6,7 @@ Always respond in Polish (zawsze odpowiadaj po polsku). UI text and code comment
 
 "Mafia": host screen (`index.html`, TV/laptop) + private player phones (`play.html`). Static frontend, no build step, served at `https://pl3y.pl/mafia/` (GitHub Pages). Server: Cloudflare Worker in `worker/`, one Durable Object per room, deployed by GitHub Actions (`.github/workflows/worker.yml`). No Node or Python on the dev machine.
 
-**The Worker `pl3y-server` is shared by all PL3Y games.** `worker/src/tajniacy/`, `worker/src/milion/`, `worker/src/rozejrzyj/` and their `worker/test/<game>.suite.js` belong to the other games and are documented in their own CLAUDE.md (sibling folders `../tajniacy`, `../milion`, `../rozejrzyj`); leave them alone when working on Mafia. Shared files: `worker/src/index.js` (routing for all games, origin allow-list `ALLOWED_ORIGINS`, plus localhost while `ALLOW_LOCALHOST="true"`) and `worker/wrangler.toml` (DO bindings; a new DO class needs a new `[[migrations]]` tag).
+**The Worker `pl3y-server` is shared by all PL3Y games.** `worker/src/tajniacy/`, `worker/src/milion/`, `worker/src/rozejrzyj/`, `worker/src/kurczacze/` and their `worker/test/<game>.suite.js` belong to the other games and are documented in their own CLAUDE.md (sibling folders `../tajniacy`, `../milion`, `../rozejrzyj`, `../kurczacze`); leave them alone when working on Mafia. Shared files: `worker/src/index.js` (routing for all games, origin allow-list `ALLOWED_ORIGINS`, plus localhost while `ALLOW_LOCALHOST="true"`) and `worker/wrangler.toml` (DO bindings; a new DO class needs a new `[[migrations]]` tag).
 
 ## Architecture
 
