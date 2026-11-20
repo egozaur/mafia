@@ -1,4 +1,5 @@
-name = "pl3y-mafia"
+# Wspólny serwer gier PL3Y (Mafia + Tajniacy). Kod mieszka w repo mafia.
+name = "pl3y-server"
 main = "src/index.js"
 compatibility_date = "2025-09-01"
 
@@ -6,15 +7,28 @@ compatibility_date = "2025-09-01"
 # Strony, z których wolno łączyć się z serwerem gry.
 ALLOWED_ORIGINS = "https://pl3y.pl,https://www.pl3y.pl,https://egozaur.github.io"
 # "true" pozwala łączyć się ze stron http://localhost:… (testy frontendu z prawdziwym serwerem).
-ALLOW_LOCALHOST = "false"
+# To nie jest zabezpieczenie (każdy może wysłać dowolny Origin spoza przeglądarki), tylko filtr dla przeglądarek.
+ALLOW_LOCALHOST = "true"
 
 [[durable_objects.bindings]]
 name = "ROOMS"
 class_name = "Room"
 
+[[durable_objects.bindings]]
+name = "TJ_ROOMS"
+class_name = "TjRoom"
+
+[[durable_objects.bindings]]
+name = "TJ_SAVES"
+class_name = "TjSaves"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Room"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["TjRoom", "TjSaves"]
 
 [observability]
 enabled = true

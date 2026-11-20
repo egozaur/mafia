@@ -1,7 +1,10 @@
-// Worker PL3Y Mafia: tworzenie pokojów i przekazywanie połączeń WebSocket do Durable Objects.
+// Wspólny serwer gier PL3Y: Mafia i Tajniacy. Tworzenie pokojów, połączenia WebSocket do Durable Objects
+// i wspólna lista zapisanych gier Tajniaków.
 import { Room } from './room.js';
+import { TjRoom } from './tajniacy/room.js';
+import { TjSaves } from './tajniacy/saves.js';
 
-export { Room };
+export { Room, TjRoom, TjSaves };
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // bez 0/O, 1/I
 const CODE_LEN = 5;
@@ -25,10 +28,31 @@ function cors(origin, res) {
   if (!origin) return res;
   const h = new Headers(res.headers);
   h.set('Access-Control-Allow-Origin', origin);
-  h.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  h.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   h.set('Access-Control-Allow-Headers', 'Content-Type');
   h.set('Vary', 'Origin');
   return new Response(res.body, { status: res.status, headers: h });
+}
+
+// Zakłada pokój pod wolnym kodem w danej przestrzeni Durable Objects.
+async function createRoom(ns, origin) {
+  if (!origin) return new Response('Forbidden', { status: 403 });
+  for (let i = 0; i < 8; i++) {
+    const code = newCode();
+    const stub = ns.get(ns.idFromName(code));
+    const res = await stub.fetch('https://room/init', { method: 'POST', body: JSON.stringify({ code }) });
+    if (res.status === 409) continue;
+    return cors(origin, new Response(res.body, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }));
+  }
+  return cors(origin, new Response('Brak wolnych kodów', { status: 503 }));
+}
+
+function roomSocket(ns, req, origin, rawCode) {
+  if (req.headers.get('Upgrade') !== 'websocket') return new Response('Expected WebSocket', { status: 426 });
+  if (!origin) return new Response('Forbidden', { status: 403 });
+  const code = rawCode.toUpperCase();
+  if (!CODE_RE.test(code)) return new Response('Bad code', { status: 400 });
+  return ns.get(ns.idFromName(code)).fetch(req);
 }
 
 export default {
@@ -37,31 +61,24 @@ export default {
     const origin = allowedOrigin(req, env);
 
     if (req.method === 'OPTIONS') return cors(origin, new Response(null, { status: 204 }));
-
     if (url.pathname === '/api/health') return cors(origin, Response.json({ ok: true }));
 
-    // POST /api/rooms → { code, hostToken }
-    if (url.pathname === '/api/rooms' && req.method === 'POST') {
-      if (!origin) return new Response('Forbidden', { status: 403 });
-      for (let i = 0; i < 8; i++) {
-        const code = newCode();
-        const stub = env.ROOMS.get(env.ROOMS.idFromName(code));
-        const res = await stub.fetch('https://room/init', { method: 'POST', body: JSON.stringify({ code }) });
-        if (res.status === 409) continue;
-        return cors(origin, new Response(res.body, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }));
-      }
-      return cors(origin, new Response('Brak wolnych kodów', { status: 503 }));
-    }
+    // ---------- Mafia ----------
+    if (url.pathname === '/api/rooms' && req.method === 'POST') return createRoom(env.ROOMS, origin);
+    let m = url.pathname.match(/^\/api\/rooms\/([A-Za-z0-9]+)\/ws$/);
+    if (m) return roomSocket(env.ROOMS, req, origin, m[1]);
 
-    // GET /api/rooms/:code/ws → WebSocket do pokoju
-    const m = url.pathname.match(/^\/api\/rooms\/([A-Za-z0-9]+)\/ws$/);
+    // ---------- Tajniacy ----------
+    if (url.pathname === '/api/tj/rooms' && req.method === 'POST') return createRoom(env.TJ_ROOMS, origin);
+    m = url.pathname.match(/^\/api\/tj\/rooms\/([A-Za-z0-9]+)\/ws$/);
+    if (m) return roomSocket(env.TJ_ROOMS, req, origin, m[1]);
+    m = url.pathname.match(/^\/api\/tj\/saves(\/\d{1,16})?$/);
     if (m) {
-      if (req.headers.get('Upgrade') !== 'websocket') return new Response('Expected WebSocket', { status: 426 });
       if (!origin) return new Response('Forbidden', { status: 403 });
-      const code = m[1].toUpperCase();
-      if (!CODE_RE.test(code)) return new Response('Bad code', { status: 400 });
-      const stub = env.ROOMS.get(env.ROOMS.idFromName(code));
-      return stub.fetch(req);
+      const stub = env.TJ_SAVES.get(env.TJ_SAVES.idFromName('saves'));
+      const init = { method: req.method, headers: { 'Content-Type': 'application/json' } };
+      if (req.method === 'PUT') init.body = await req.text();
+      return cors(origin, await stub.fetch('https://saves' + (m[1] || '/'), init));
     }
 
     return new Response('Not found', { status: 404 });

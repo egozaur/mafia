@@ -1,5 +1,5 @@
 {
-  "name": "pl3y-mafia-worker",
+  "name": "pl3y-server",
   "private": true,
   "type": "module",
   "scripts": {
