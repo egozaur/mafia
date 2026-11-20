@@ -63,15 +63,34 @@ test('postronny kończy turę i jest oznaczony tylko po stronie podającego', ()
   assert(g.found[i], 'agent drugiego gracza odkryty mimo wcześniejszego pudła');
 });
 
-test('limit trafień: liczba z hasła + 1, potem koniec tury', () => {
+test('limit prób: dokładnie liczba przy haśle, potem koniec tury', () => {
   const g = game(5, 0);
   const p = g.giver, q = 1 - p;
-  ok(E.apply(g, p, { a: 'clue', word: 'x', n: 1 }));
+  ok(E.apply(g, p, { a: 'clue', word: 'x', n: 2 }));
+  eq(E.view(g, q).max, 2);
   const ag = g.keys[p].map((k, i) => (k === 'g' ? i : -1)).filter(i => i >= 0);
   ok(E.apply(g, q, { a: 'guess', i: ag[0] }));
   eq(g.phase, 'guess');
   ok(E.apply(g, q, { a: 'guess', i: ag[1] }));
-  eq([g.phase, g.giver], ['clue', q], 'po 2 trafieniach tura się kończy');
+  eq([g.phase, g.giver], ['clue', q], 'po 2 trafieniach przy haśle „x · 2” tura się kończy');
+  ok(E.apply(g, q, { a: 'clue', word: 'y', n: 1 }));
+  ok(E.apply(g, p, { a: 'guess', i: g.keys[q].findIndex((k, i) => k === 'g' && !g.found[i]) }));
+  eq([g.phase, g.giver], ['clue', p], 'przy liczbie 1 jedna próba');
+});
+
+test('hasło: jedno słowo, nie ze słów z planszy ani ich części', () => {
+  const words = ['cyrk', 'Kotwica', 'rakieta', ...WORDS.slice(3)];
+  const g = E.setup(12, words, 9, ['Ala', 'Ola']);
+  const p = g.giver;
+  assert(/jedno słowo/.test(E.apply(g, p, { a: 'clue', word: 'dwa słowa', n: 1 }).err), 'spacja');
+  assert(E.apply(g, p, { a: 'clue', word: 'CYRK', n: 1 }).err, 'to samo słowo, inna wielkość liter');
+  assert(E.apply(g, p, { a: 'clue', word: 'cyrkowy', n: 1 }).err, 'zawiera słowo z planszy');
+  assert(E.apply(g, p, { a: 'clue', word: 'kot', n: 1 }).err, 'część słowa z planszy');
+  assert(/rakieta/.test(E.apply(g, p, { a: 'clue', word: 'rak', n: 1 }).err), 'komunikat podaje słowo');
+  eq(g.phase, 'clue', 'odrzucone hasła nic nie zmieniają');
+  ok(E.apply(g, p, { a: 'clue', word: 'klaun', n: 1 }));
+  eq(E.clashWord(words, 'Cyrkowiec'), 'cyrk');
+  eq(E.clashWord(words, 'klaun'), null);
 });
 
 test('zabójca podającego = przegrana; poddanie = przegrana', () => {

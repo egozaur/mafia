@@ -57,7 +57,15 @@ const agentsLeft = (g, s) => g.keys[s].reduce((n, k, i) => n + (k === 'g' && !g.
 export const foundCount = g => g.found.filter(Boolean).length;
 // Kto ma teraz działać: podający w fazie hasła, zgadujący w fazie zgadywania.
 export const actor = g => (g.phase === 'end' ? null : g.phase === 'clue' ? g.giver : 1 - g.giver);
-export const maxGuesses = g => (g.clue ? g.clue.n + 1 : 0);
+// Zgadujący ma tyle prób, ile wynosi liczba przy haśle.
+export const maxGuesses = g => (g.clue ? g.clue.n : 0);
+
+// Słowo z planszy, z którym hasło się gryzie: to samo słowo albo jedno zawiera drugie (bez względu na wielkość liter).
+// Zwraca to słowo albo null. Ta sama reguła jest w duo.html (podpowiedź przed wysłaniem).
+export function clashWord(words, clue) {
+  const c = String(clue).toLocaleLowerCase('pl');
+  return words.find(w => { const x = w.toLocaleLowerCase('pl'); return x === c || x.includes(c) || c.includes(x); }) || null;
+}
 
 function finish(g, win, reason, extra) { g.phase = 'end'; g.result = Object.assign({ win, reason }, extra || {}); }
 
@@ -79,9 +87,12 @@ export function apply(g, seat, act) {
   if (act.a === 'surrender') { finish(g, false, 'surrender', { by: seat }); return { ok: true }; }
   if (act.a === 'clue') {
     if (g.phase !== 'clue' || seat !== g.giver) return { err: 'Teraz nie podajesz hasła.' };
-    const word = String(act.word == null ? '' : act.word).replace(/\s+/g, ' ').trim().slice(0, CLUE_MAX);
+    const word = String(act.word == null ? '' : act.word).trim().slice(0, CLUE_MAX);
     const n = Number(act.n);
     if (!word) return { err: 'Wpisz hasło.' };
+    if (/\s/.test(word)) return { err: 'Hasło to jedno słowo, bez spacji.' };
+    const hit = clashWord(g.words, word);
+    if (hit) return { err: `Hasło nie może być słowem z planszy ani jego częścią („${hit}”).` };
     if (!Number.isInteger(n) || n < 1 || n > 9) return { err: 'Liczba słów: od 1 do 9.' };
     g.clue = { word, n }; g.phase = 'guess'; g.guesses = 0;
     g.log.push({ giver: seat, word, n, picks: [] });
@@ -99,7 +110,7 @@ export function apply(g, seat, act) {
     if (k === 'n') { g.miss[g.giver][i] = true; endTurn(g); return { ok: true }; }
     g.found[i] = true; g.guesses++;
     if (foundCount(g) === AGENTS_TOTAL) { finish(g, true, 'all'); return { ok: true }; }
-    // Podający nie ma już agentów albo wykorzystano limit trafień (liczba + 1): koniec tury.
+    // Podający nie ma już agentów albo wykorzystano limit prób (liczba przy haśle): koniec tury.
     if (g.guesses >= maxGuesses(g) || agentsLeft(g, g.giver) === 0) endTurn(g);
     return { ok: true };
   }
