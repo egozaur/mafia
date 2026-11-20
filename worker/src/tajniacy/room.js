@@ -1,6 +1,7 @@
 // Durable Object „TjRoom”: pokój Tajniaków. Prowadzący (ekran TV) jest źródłem prawdy o grze:
 // wysyła cały stan (`set`), a serwer go przechowuje i rozsyła kapitanom (telefony z kluczem).
-// Ten sam pokój służy kolejnym grom, więc kapitanowie skanują kod QR tylko raz.
+// Ten sam pokój służy kolejnym grom; przy nowej planszy prowadzący wysyła `rotate`, a serwer wydaje
+// nowe kody kapitanów i rozłącza stare telefony (kapitanowie skanują nowy kod QR).
 
 export const TJ_TTL = 7 * 24 * 60 * 60 * 1000;   // pokój bez aktywności znika po tygodniu
 const MAX_MSG = 16384;
@@ -125,8 +126,21 @@ export class TjRoom {
       game = cleanGame(msg.game);
       if (!game) return this.send(ws, { t: 'error', code: 'badgame', err: 'Nieprawidłowy stan gry.' });
     }
-    this.state = { ...this.state, game, cfg: cleanCfg(msg.cfg), touchedAt: Date.now() };
+    // Nowa plansza: nowe kody kapitanów. Stare telefony są rozłączane PRZED rozesłaniem gry,
+    // żeby poprzedni kapitan (albo ktoś, kto patrzy na jego telefon) nie zobaczył nowego klucza.
+    const rotate = msg.rotate === true;
+    const cap = rotate ? { r: token(12), b: token(12) } : this.state.cap;
+    this.state = { ...this.state, game, cap, cfg: cleanCfg(msg.cfg), touchedAt: Date.now() };
     await this.save();
+    if (rotate) {
+      for (const s of this.ctx.getWebSockets()) {
+        const a = s.deserializeAttachment() || {};
+        if (a.kind !== 'cap') continue;
+        try { s.serializeAttachment({ kind: 'closed' }); } catch {}
+        try { s.close(4401, 'revoked'); } catch {}
+      }
+      this.send(ws, { t: 'caps', cap: { ...cap }, gameId: game ? game.id : null });
+    }
     this.broadcast();
   }
 

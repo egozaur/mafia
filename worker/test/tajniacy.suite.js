@@ -68,6 +68,29 @@ test('pokój: prowadzący ustawia grę, kapitanowie dostają widok', async () =>
   assert(host.last('state').caps.r === 1 && host.last('state').caps.b === 1, 'licznik kapitanów u prowadzącego');
 });
 
+test('pokój: nowa plansza z rotate wydaje nowe kody i rozłącza starych kapitanów', async () => {
+  const { room, info, host } = await setup();
+  const cr = await connect(room), cb = await connect(room);
+  await send(room, cr, { t: 'hello', cap: info.cap.r });
+  await send(room, cb, { t: 'hello', cap: info.cap.b });
+  await send(room, host, { t: 'set', game: GAME() });
+  assert(cr.open && cb.open, 'set bez rotate nie rozłącza');
+  assert(!host.last('caps') && room.state.cap.r === info.cap.r, 'set bez rotate nie zmienia kodów');
+  const g = { ...GAME(), id: 8 };
+  await send(room, host, { t: 'set', game: g, rotate: true });
+  assert(cr.closed === 4401 && cb.closed === 4401, 'starzy kapitanowie rozłączeni');
+  assert(cr.out.every(m => !(m.view && m.view.game && m.view.game.id === 8)), 'stary kapitan nie dostał nowej planszy');
+  const caps = host.last('caps');
+  assert(caps && caps.gameId === 8 && caps.cap.r && caps.cap.b && caps.cap.r !== info.cap.r && caps.cap.b !== info.cap.b, 'nowe kody u prowadzącego');
+  assert(host.last('state').caps.r === 0 && host.last('state').caps.b === 0, 'licznik kapitanów wyzerowany');
+  const old = await connect(room);
+  await send(room, old, { t: 'hello', cap: info.cap.r });
+  assert(old.last('error').code === 'badcap', 'stary kod nieaktualny');
+  const nr = await connect(room);
+  await send(room, nr, { t: 'hello', cap: caps.cap.r });
+  assert(nr.last('state').view.game.id === 8, 'nowy kod działa');
+});
+
 test('pokój: odrzuca zły stan gry, nie gubi poprzedniego', async () => {
   const { room, info, host } = await setup();
   await send(room, host, { t: 'set', game: GAME() });
