@@ -12,6 +12,8 @@ ALLOWED_ORIGINS = "https://pl3y.pl,https://www.pl3y.pl,https://egozaur.github.io
 ALLOW_LOCALHOST = "false"
 # Bramka autoryzacji: "off" (wyłączona) | "optional" (token sprawdzany, gdy jest) | "required" (bez ważnego tokena 401).
 # Sekrety (wrangler secret put): PL3Y_PASSWORD, PL3Y_TOKEN_SECRET, PL3Y_TEST_SECRET. Instrukcja: mafia/README.md.
+# Opcjonalne: PL3Y_DISCORD_WEBHOOK (powiadomienia o prośbach o reset PIN-u), PL3Y_WORDLE_SECRET (kolejność słów dnia;
+# bez niego używany jest PL3Y_TOKEN_SECRET, więc jego zmiana zmienia też słowa).
 AUTH_MODE = "required"
 
 [[durable_objects.bindings]]
@@ -69,6 +71,19 @@ class_name = "TjDuo"
 [[migrations]]
 tag = "v6"
 new_sqlite_classes = ["TjDuo"]
+
+# Gracze PL3Y (nick + PIN + awatar) i Wordle PL (słowo dnia + ranking).
+[[durable_objects.bindings]]
+name = "PLAYERS"
+class_name = "Players"
+
+[[durable_objects.bindings]]
+name = "WD_DAILY"
+class_name = "WdDaily"
+
+[[migrations]]
+tag = "v7"
+new_sqlite_classes = ["Players", "WdDaily"]
 
 [observability]
 enabled = true

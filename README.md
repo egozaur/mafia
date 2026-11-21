@@ -34,6 +34,25 @@ Tryb bramki to zmienna `AUTH_MODE` w `worker/wrangler.toml`. Domyślnie jest `re
 
 Kolejność wdrożenia przy `required`: 1) sekrety, 2) strony (lobby i wszystkie gry, żeby klienci umieli się zalogować), 3) Worker (push na `main` w `mafia`). Strony ze starym kodem po włączeniu `required` przestają łączyć się z serwerem, więc nie odwracaj kolejności. Sprawdzenie po wdrożeniu: `curl -i -X POST https://pl3y-server.pl3y.workers.dev/api/rooms -H "Origin: https://pl3y.pl"` ma dać 401, a logowanie w lobby 200.
 
+## Gracze: nick + PIN, reset PIN-u przez Discord
+
+Gracze PL3Y mają nick zarezerwowany 4-cyfrowym PIN-em (bez kont i e-maili, `worker/src/players.js`).
+Gdy gracz zapomni PIN i kliknie „Nie pamiętam PIN-u”, Worker wysyła na Discorda wiadomość z linkiem
+„Reset”. Otwierasz link, klikasz **Resetuj PIN**, a gracz przy następnym wejściu ustawia nowy.
+
+Jednorazowa konfiguracja powiadomień:
+
+1. Discord → ustawienia kanału → Integracje → Webhooki → Nowy webhook → **Kopiuj adres URL webhooka**.
+2. `cd worker && npx wrangler secret put PL3Y_DISCORD_WEBHOOK` i wklej adres (albo w panelu Cloudflare:
+   Workers → pl3y-server → Settings → Variables and Secrets → Add → Secret).
+
+Bez tego sekretu prośby o reset nigdzie nie trafiają (gracz widzi „Prośba wysłana”, ale nic nie przychodzi).
+Link resetu jest podpisany (`PL3Y_TOKEN_SECRET`) i ważny 7 dni; podgląd linku w Discordzie niczego nie resetuje,
+dopiero przycisk na stronie. Jedna prośba na nick na godzinę.
+
+Opcjonalnie `PL3Y_WORDLE_SECRET`: ustala kolejność słów dnia w Wordle. Bez niego używany jest `PL3Y_TOKEN_SECRET`,
+więc „wylogowanie wszystkich” (zmiana `PL3Y_TOKEN_SECRET`) zmieni też dzisiejsze słowo i unieważni zalogowania nickiem.
+
 ## Testy
 
 - Silnik i protokół: `node --test worker/test/engine.test.js` (CI) albo `worker/test/run.html` w przeglądarce.

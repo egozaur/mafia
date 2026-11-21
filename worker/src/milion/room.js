@@ -112,7 +112,10 @@ export class MlRoom {
       const s = await this.load();
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
-      this.attach(server, s);
+      // Gracz z potwierdzonym nickiem (nick + PIN): Worker sprawdził token i dopisał nagłówek (od klienta jest usuwany).
+      let pl = null;
+      try { const h = req.headers.get('X-PL3Y-Player'); if (h) { const x = JSON.parse(h); if (x && typeof x.n === 'string' && typeof x.nick === 'string') pl = { n: x.n, nick: x.nick }; } } catch {}
+      this.attach(server, s, pl);
       return new Response(null, { status: 101, webSocket: client });
     }
     return new Response('Not found', { status: 404 });
@@ -127,9 +130,9 @@ export class MlRoom {
     return { code, hostToken: this.state.hostToken };
   }
 
-  attach(ws, s) {
+  attach(ws, s, pl = null) {
     this.ctx.acceptWebSocket(ws);
-    ws.serializeAttachment({ kind: 'guest' });
+    ws.serializeAttachment({ kind: 'guest', pl });
     if (!s) { this.send(ws, { t: 'error', code: 'noroom', err: 'Taki pokój nie istnieje albo wygasł.' }); ws.close(4404, 'noroom'); }
   }
 
@@ -186,14 +189,25 @@ export class MlRoom {
       }
       if (msg.join == null) return this.send(ws, { t: 'error', code: 'badplayer', err: 'Nie ma Cię już w tym pokoju. Dołącz jeszcze raz.' });
     }
+    const pl = (ws.deserializeAttachment() || {}).pl;
+    if (msg.join != null && pl) {
+      // ten sam gracz z innego urządzenia: wraca na swoje miejsce zamiast dołączać drugi raz
+      const same = s.players.find(x => x.n === pl.n);
+      if (same) {
+        ws.serializeAttachment({ kind: 'player', id: same.id });
+        this.send(ws, { t: 'welcome', as: 'player', id: same.id, token: same.token });
+        return this.broadcast();
+      }
+    }
     if (msg.join != null) {
       if (s.phase !== 'lobby') return this.send(ws, { t: 'error', code: 'started', err: 'Mecz już trwa. Poczekaj na następny.' });
       if (s.players.length >= MAX_PLAYERS) return this.send(ws, { t: 'error', code: 'full', err: 'Pokój jest pełny.' });
-      let name = cleanName(msg.join);
+      let name = pl ? cleanName(pl.nick) : cleanName(msg.join);
       if (!name) return this.send(ws, { t: 'error', code: 'noname', err: 'Wpisz swój nick.' });
       const base = name; let k = 2;
       while (s.players.some(x => x.name.toLowerCase() === name.toLowerCase())) name = (base.slice(0, 13) + ' ' + k++);
       const p = newPlayer(name);
+      if (pl) p.n = pl.n;                  // tylko tacy gracze trafiają do rankingu
       s.players.push(p);
       s.touchedAt = this.now();
       await this.save();
@@ -293,7 +307,9 @@ export class MlRoom {
     const ns = this.env.ML_SCORES;
     if (!ns) return;
     const top = Math.max(...s.players.map(p => p.total));
-    const entries = s.players.map(p => ({ nick: p.name, pts: p.total, win: top > 0 && p.total === top }));
+    // ranking tylko dla potwierdzonych nicków (nick + PIN); goście grają, ale się nie zapisują
+    const entries = s.players.filter(p => p.n).map(p => ({ nick: p.name, n: p.n, pts: p.total, win: top > 0 && p.total === top }));
+    if (!entries.length) return;
     try {
       await ns.get(ns.idFromName('scores')).fetch('https://scores/multi', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entries }) });
     } catch {}

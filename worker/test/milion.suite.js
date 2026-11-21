@@ -28,7 +28,8 @@ function mkCtx() {
   };
 }
 const send = (room, ws, obj) => room.webSocketMessage(ws, JSON.stringify(obj));
-async function connect(room) { const ws = new WS(); room.attach(ws, await room.load()); return ws; }
+// pl = gracz z potwierdzonym nickiem (Worker przekazuje go nagłówkiem X-PL3Y-Player)
+async function connect(room, pl = null) { const ws = new WS(); room.attach(ws, await room.load(), pl); return ws; }
 
 // Pytanie poziomu L w rundzie R: poprawna zawsze na pozycji (L % 4), zapasowe na ((L+1) % 4).
 const Q = (r, l, alt) => ({ q: `R${r} P${l}${alt ? ' zapas' : ''}`, a: ['A', 'B', 'C', 'D'].map(x => `${x}${l}`), ok: alt ? (l + 1) % 4 : l % 4 });
@@ -36,7 +37,7 @@ const POOL = () => [0, 1, 2].map(r => LADDER.map((_, l) => ({ m: Q(r, l), s: Q(r
 const okOf = l => l % 4;
 const badOf = l => (l + 2) % 4;
 
-async function setup(n = 2, env = {}) {
+async function setup(n = 2, env = {}, verified = 0) {
   const ctx = mkCtx(); const room = new MlRoom(ctx, env);
   let t = 1_000_000; room.now = () => t;
   const clock = { add: ms => { t += ms; }, get: () => t };
@@ -45,7 +46,7 @@ async function setup(n = 2, env = {}) {
   await send(room, host, { t: 'hello', host: info.hostToken });
   const ps = [];
   for (let i = 0; i < n; i++) {
-    const ws = await connect(room);
+    const ws = await connect(room, i < verified ? { n: 'gracz' + i, nick: 'Gracz' + i } : null);
     await send(room, ws, { t: 'hello', join: 'Gracz' + i });
     ps.push(ws);
   }
@@ -130,7 +131,7 @@ test('limit czasu: alarm odsłania, brak odpowiedzi = odpada', async () => {
 test('runda kończy się, gdy wszyscy odpadną; 3 rundy, suma punktów, zapis rankingu', async () => {
   const posted = [];
   const env = { ML_SCORES: { idFromName: n => n, get: () => ({ fetch: async (url, init) => { posted.push({ url, body: JSON.parse(init.body) }); return new Response('{}'); } }) } };
-  const { host, ps, room } = await setup(2, env);
+  const { host, ps, room } = await setup(2, env, 2);
   await send(room, host, { t: 'start', time: 30, pool: POOL() });
   for (let r = 0; r < 3; r++) {
     // pytanie 1: obaj dobrze; pytanie 2: Gracz0 dobrze, Gracz1 źle; pytanie 3: Gracz0 źle -> koniec rundy
@@ -155,6 +156,7 @@ test('runda kończy się, gdy wszyscy odpadną; 3 rundy, suma punktów, zapis ra
   assert(posted.length === 1 && posted[0].url.endsWith('/multi'), 'zapis rankingu');
   const e = posted[0].body.entries;
   assert(e.find(x => x.nick === 'Gracz0').win && !e.find(x => x.nick === 'Gracz1').win, 'zwycięzca');
+  assert(e.every(x => x.n === x.nick.toLowerCase()), 'wpisy z kluczem gracza');
   await send(room, host, { t: 'next' });
   assert(posted.length === 1, 'bez podwójnego zapisu');
   await send(room, host, { t: 'reset' });
@@ -245,29 +247,34 @@ function mkScores() {
 }
 const req = (s, method, path, body) => s.fetch(new Request('https://scores' + path, { method, body: body ? JSON.stringify(body) : undefined })).then(r => r.json().then(j => ({ status: r.status, j })));
 
+// wpisy z kluczem gracza n (Worker dopisuje go po sprawdzeniu tokena gracza)
+const P = (nick, x) => ({ nick, n: nick.toLowerCase(), ...x });
 test('ranking: solo (walidacja, sortowanie, limit), multi, wygrane', async () => {
   const s = mkScores();
-  assert((await req(s, 'POST', '/solo', { nick: 'Ala', amount: 1234, qs: 3 })).status === 400, 'kwota spoza drabinki');
-  assert((await req(s, 'POST', '/solo', { nick: '', amount: 500, qs: 1 })).status === 400, 'bez nicku');
-  await req(s, 'POST', '/solo', { nick: 'Ala', amount: 40000, qs: 8 });
-  await req(s, 'POST', '/solo', { nick: 'Ola', amount: 1000000, qs: 12 });
-  for (let i = 0; i < TOP + 5; i++) await req(s, 'POST', '/solo', { nick: 'X' + i, amount: 500, qs: 1 });
-  await req(s, 'POST', '/multi', { entries: [{ nick: 'Ala', pts: 5000, win: true }, { nick: 'Ola', pts: 300, win: false }, { nick: 'Ala', pts: 99e9, win: true }] });
-  await req(s, 'POST', '/multi', { entries: [{ nick: 'Ala', pts: 7000, win: true }] });
+  assert((await req(s, 'POST', '/solo', P('Ala', { amount: 1234, qs: 3 }))).status === 400, 'kwota spoza drabinki');
+  assert((await req(s, 'POST', '/solo', { nick: '', n: 'x', amount: 500, qs: 1 })).status === 400, 'bez nicku');
+  assert((await req(s, 'POST', '/solo', { nick: 'Bez', amount: 500, qs: 1 })).status === 400, 'bez potwierdzonego gracza');
+  await req(s, 'POST', '/solo', P('Ala', { amount: 40000, qs: 8 }));
+  await req(s, 'POST', '/solo', P('Ola', { amount: 1000000, qs: 12 }));
+  for (let i = 0; i < TOP + 5; i++) await req(s, 'POST', '/solo', P('X' + i, { amount: 500, qs: 1 }));
+  await req(s, 'POST', '/multi', { entries: [P('Ala', { pts: 5000, win: true }), P('Ola', { pts: 300, win: false }), P('Ala', { pts: 99e9, win: true }), { nick: 'Gość', pts: 100, win: false }] });
+  await req(s, 'POST', '/multi', { entries: [P('Ala', { pts: 7000, win: true })] });
   const { j } = await req(s, 'GET', '/');
   assert(j.solo.length === TOP && j.solo[0].nick === 'Ola' && j.solo[1].nick === 'Ala', 'solo');
   assert(j.multi[0].pts === 7000 && j.multi.length === 3, 'multi (bez absurdalnych wyników)');
   assert(j.wins[0].nick === 'Ala' && j.wins[0].n === 2, 'wygrane');
   assert(j.solo.every(e => e.lvl === 'n'), 'bez poziomu = normalny');
+  assert(!j.multi.some(e => e.nick === 'Gość'), 'gość bez PIN-u poza rankingiem');
+  assert(!j.solo.some(e => 'n' in e) && !j.multi.some(e => 'n' in e), 'klucz gracza nie wychodzi na zewnątrz');
 });
 
 test('ranking solo: osobne listy i miejsca dla poziomów', async () => {
   const s = mkScores();
-  for (let i = 0; i < TOP + 3; i++) await req(s, 'POST', '/solo', { nick: 'N' + i, amount: 1000, qs: 2, lvl: 'n' });
-  const r = await req(s, 'POST', '/solo', { nick: 'Ex', amount: 500, qs: 1, lvl: 'x' });
+  for (let i = 0; i < TOP + 3; i++) await req(s, 'POST', '/solo', P('N' + i, { amount: 1000, qs: 2, lvl: 'n' }));
+  const r = await req(s, 'POST', '/solo', P('Ex', { amount: 500, qs: 1, lvl: 'x' }));
   assert(r.j.rank === 1, 'pierwsze miejsce na ekstremalnym: ' + r.j.rank);
-  await req(s, 'POST', '/solo', { nick: 'Ea', amount: 2000, qs: 3, lvl: 'e' });
-  await req(s, 'POST', '/solo', { nick: 'Zly', amount: 2000, qs: 3, lvl: 'zzz' });
+  await req(s, 'POST', '/solo', P('Ea', { amount: 2000, qs: 3, lvl: 'e' }));
+  await req(s, 'POST', '/solo', P('Zly', { amount: 2000, qs: 3, lvl: 'zzz' }));
   const { j } = await req(s, 'GET', '/');
   const of = l => j.solo.filter(e => e.lvl === l);
   assert(of('n').length === TOP && of('x').length === 1 && of('e').length === 1, 'limit na poziom');

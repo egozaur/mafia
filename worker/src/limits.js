@@ -42,7 +42,9 @@ export const HTTP_LIMITS = {
   create:  { max: 10,  windowMs: 60_000 },   // zakładanie pokojów
   ws:      { max: 30,  windowMs: 60_000 },   // dołączanie po kodzie pokoju (nowe połączenia WebSocket)
   write:   { max: 30,  windowMs: 60_000 },   // zapisy: rundy Rozejrzyj się, wyniki Milionerów, zapisy Tajniaków
-  admin:   { max: 20,  windowMs: 60_000 },   // scalanie słów (PUT/DELETE alias)
+  admin:   { max: 20,  windowMs: 60_000 },   // scalanie słów (PUT/DELETE alias), strona resetu PIN-u
+  pin:     { max: 20,  windowMs: 60_000 },   // logowanie / zakładanie nicka PIN-em (dodatkowo blokada nicka po 5 błędach)
+  guess:   { max: 60,  windowMs: 60_000 },   // próby w Wordle (słowo dnia)
   read:    { max: 120, windowMs: 60_000 },   // odczyty statystyk, rankingów, eksport
 };
 

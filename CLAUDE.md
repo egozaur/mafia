@@ -15,6 +15,14 @@ Always respond in Polish (zawsze odpowiadaj po polsku). UI text and code comment
 - `RzWords` keeps at most `MAX_ROUNDS` (5000) raw rounds; older ones are deleted, the `agg:*` counters stay.
 - Tests: `worker/test/auth.suite.js` (part of `engine.test.js`).
 
+## Players and Wordle (shared Worker)
+
+- `worker/src/players.js`: DO `Players` (singleton `players`): nick reserved with a 4-digit PIN + avatar 0–10, no accounts. Key `p:<n>`, `n` = `normNick()` (lowercase, no diacritics, single spaces), so „Jonathan” = „JONATHAN” = „Jonáthan”. PIN stored as salted SHA-256; 5 wrong PINs lock the nick for 15 min. Player token `pt` = `signData(secret,'player',{n,v})` (no expiry); `v` grows on an admin reset, which invalidates old tokens. `playerFromToken(env, pt)` → `{n, nick, avatar}` or null.
+- Routes (session token required): `POST /api/pl/check|claim|login|me|avatar|reset-request`. `reset-request` (max once an hour per nick) posts a signed link to the Discord webhook `PL3Y_DISCORD_WEBHOOK`; `GET /api/pl/admin-reset?t=…` (no session, signature only) shows a confirm button, `POST` resets (`needPin`, next login sets a new PIN).
+- `worker/src/wordle/daily.js`: DO `WdDaily` (singleton `wordle`): Polish word of the day known only to the server (day by Europe/Warsaw; order = shuffle of `ANSWERS` seeded by HMAC(`PL3Y_WORDLE_SECRET` or `PL3Y_TOKEN_SECRET`, cycle)). Routes `POST /api/wd/state|guess` (`{pt, w}`), `GET /api/wd/rank` (today: won, fewer tries, faster; all-time: wins, avg tries, streak). `worker/src/wordle/words-pl.js` is **generated** by `../wordle/dev/build-words-pl.mjs` (same list as the client); don't edit it.
+- Milion ranking accepts only verified players: solo `POST /api/ml/scores` needs `pt` (nick taken from the server); multi WebSocket `?pt=` → the Worker adds header `X-PL3Y-Player` (stripped from client requests) and `MlRoom` stores `p.n`; guests play but are not ranked. `MlScores` data v2 (old nick-only ranking wiped).
+- Rate limits: `pin` 20/min (login/claim), `guess` 60/min. Tests: `worker/test/players.suite.js`.
+
 ## Architecture
 
 - `worker/src/engine/*`: pure game engine, no I/O (time, RNG, token generator come in `ctx`). `machine.js` = phase machine (`apply`, `tick`); modules for roles, balance, lobby, deal, night, vote, victory, CHAOS events.

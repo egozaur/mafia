@@ -1,4 +1,4 @@
-// Wspólny serwer gier PL3Y: Mafia, Tajniacy, Milion, Rozejrzyj się i Kurczacze Imperium. Tworzenie pokojów, połączenia WebSocket do Durable Objects
+// Wspólny serwer gier PL3Y: Mafia, Tajniacy, Milion, Rozejrzyj się, Kurczacze Imperium, Wordle i gracze (nick + PIN). Tworzenie pokojów, połączenia WebSocket do Durable Objects
 // i wspólna lista zapisanych gier Tajniaków.
 import { Room } from './room.js';
 import { TjRoom } from './tajniacy/room.js';
@@ -8,10 +8,12 @@ import { MlScores } from './milion/scores.js';
 import { RzWords } from './rozejrzyj/words.js';
 import { KiRoom } from './kurczacze/room.js';
 import { TjDuo } from './tajniacy/duo.js';
-import { authMode, login, refresh, tokenFrom, verifyToken } from './auth.js';
+import { Players, normNick, validPin, playersCall, playerFromToken, playerToken, resetLink, resetFromLink, notifyAdmin, AVATARS } from './players.js';
+import { WdDaily } from './wordle/daily.js';
+import { authMode, login, refresh, tokenFrom, verifyToken, verifyData } from './auth.js';
 import { IpLimiter } from './limits.js';
 
-export { Room, TjRoom, TjSaves, MlRoom, MlScores, RzWords, KiRoom, TjDuo };
+export { Room, TjRoom, TjSaves, MlRoom, MlScores, RzWords, KiRoom, TjDuo, Players, WdDaily };
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // bez 0/O, 1/I
 const CODE_LEN = 5;
@@ -75,6 +77,12 @@ export function limitKind(method, path) {
   if (/\/ws$/.test(path)) return 'ws';
   if (path.startsWith('/api/rz/')) return method === 'GET' ? 'read' : method === 'POST' ? 'write' : 'admin';
   if (path === '/api/ml/scores') return method === 'GET' ? 'read' : 'write';
+  if (path === '/api/pl/login' || path === '/api/pl/claim') return 'pin';
+  if (path === '/api/pl/reset-request' || path === '/api/pl/avatar') return 'write';
+  if (path === '/api/pl/admin-reset') return 'admin';
+  if (path.startsWith('/api/pl/')) return 'read';
+  if (path === '/api/wd/guess') return 'guess';
+  if (path.startsWith('/api/wd/')) return 'read';
   if (path.startsWith('/api/tj/saves')) return method === 'GET' ? 'read' : 'write';
   return null;
 }
@@ -103,6 +111,10 @@ export default {
       const wait = limiter.check(kind, req.headers.get('CF-Connecting-IP') || 'brak');
       if (wait) return deny(origin, 429, 'Za dużo prób. Spróbuj za chwilę.', 'rate', { 'Retry-After': String(wait) });
     }
+
+    // Link resetu PIN-u z Discorda: admin otwiera go w dowolnej przeglądarce, bez sesji PL3Y. Chroni go podpis HMAC.
+    // GET pokazuje tylko przycisk (podgląd linku w Discordzie nie może sam zresetować PIN-u), dopiero POST resetuje.
+    if (url.pathname === '/api/pl/admin-reset' && (req.method === 'GET' || req.method === 'POST')) return adminReset(req, env, url);
 
     if (url.pathname === '/api/auth/login' && req.method === 'POST') {
       if (!origin) return new Response('Forbidden', { status: 403 });
@@ -148,14 +160,47 @@ export default {
     // ---------- Milion ----------
     if (url.pathname === '/api/ml/rooms' && req.method === 'POST') return createRoom(env.ML_ROOMS, origin);
     m = url.pathname.match(/^\/api\/ml\/rooms\/([A-Za-z0-9]+)\/ws$/);
-    if (m) return roomSocket(env.ML_ROOMS, req, origin, m[1]);
+    if (m) {
+      const h = new Headers(req.headers); h.delete('X-PL3Y-Player');   // nagłówek ustawia tylko Worker
+      const pl = url.searchParams.get('pt') ? await playerFromToken(env, url.searchParams.get('pt')) : null;
+      if (pl) h.set('X-PL3Y-Player', JSON.stringify({ n: pl.n, nick: pl.nick }));
+      return roomSocket(env.ML_ROOMS, new Request(req, { headers: h }), origin, m[1]);
+    }
     // Z zewnątrz tylko odczyt rankingu i wynik solo; wyniki meczów multi zapisuje sam pokój (MlRoom).
     if (url.pathname === '/api/ml/scores' && (req.method === 'GET' || req.method === 'POST')) {
       if (!origin) return new Response('Forbidden', { status: 403 });
       const stub = env.ML_SCORES.get(env.ML_SCORES.idFromName('scores'));
       const init = { method: req.method, headers: { 'Content-Type': 'application/json' } };
-      if (req.method === 'POST') init.body = (await req.text()).slice(0, 2000);
+      if (req.method === 'POST') {
+        // wynik solo tylko z potwierdzonym nickiem: nick bierzemy z serwera, nie od przeglądarki
+        const b = await readJson(req, 2000);
+        const pl = b && await playerFromToken(env, b.pt);
+        if (!pl) return deny(origin, 401, 'Zaloguj się swoim nickiem, żeby zapisać wynik.', 'player');
+        init.body = JSON.stringify({ amount: b.amount, qs: b.qs, lvl: b.lvl, nick: pl.nick, n: pl.n });
+      }
       return cors(origin, await stub.fetch('https://scores' + (req.method === 'POST' ? '/solo' : '/'), init));
+    }
+
+    // ---------- Gracze: nick + PIN + awatar (wspólne dla wszystkich gier) ----------
+    m = url.pathname.match(/^\/api\/pl\/(check|claim|login|me|avatar|reset-request)$/);
+    if (m && req.method === 'POST') {
+      if (!origin) return new Response('Forbidden', { status: 403 });
+      return cors(origin, await playersRoute(m[1], await readJson(req, 1000), env, url));
+    }
+
+    // ---------- Wordle PL: słowo dnia na serwerze + ranking ----------
+    if (url.pathname === '/api/wd/rank' && req.method === 'GET') {
+      if (!origin) return new Response('Forbidden', { status: 403 });
+      return cors(origin, await env.WD_DAILY.get(env.WD_DAILY.idFromName('wordle')).fetch('https://wd/rank'));
+    }
+    m = url.pathname.match(/^\/api\/wd\/(state|guess)$/);
+    if (m && req.method === 'POST') {
+      if (!origin) return new Response('Forbidden', { status: 403 });
+      const b = await readJson(req, 1000);
+      const pl = b && await playerFromToken(env, b.pt);
+      if (!pl) return deny(origin, 401, 'Zaloguj się swoim nickiem.', 'player');
+      const stub = env.WD_DAILY.get(env.WD_DAILY.idFromName('wordle'));
+      return cors(origin, await stub.fetch('https://wd/' + m[1], { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pl, w: b.w }) }));
     }
 
     // ---------- Kurczacze Imperium (2 graczy, serwer pilnuje zasad) ----------
@@ -178,3 +223,60 @@ export default {
     return new Response('Not found', { status: 404 });
   },
 };
+
+async function readJson(req, max) {
+  try { return JSON.parse((await req.text()).slice(0, max)); } catch { return null; }
+}
+const jres = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+
+// /api/pl/*: sprawdzenie nicka, założenie (nick + PIN + awatar), logowanie PIN-em, „kim jestem”, zmiana awatara, prośba o reset.
+async function playersRoute(what, b, env, url) {
+  if (!b) return jres({ err: 'Nieprawidłowe dane.' }, 400);
+  if (what === 'me' || what === 'avatar') {
+    const pl = await playerFromToken(env, b.pt);
+    if (!pl) return jres({ err: 'Zaloguj się ponownie.', code: 'player' }, 401);
+    if (what === 'me') return jres(pl);
+    const d = await verifyData(env.PL3Y_TOKEN_SECRET, 'player', b.pt);
+    const r = await playersCall(env, '/avatar', { n: pl.n, v: d.v, avatar: Number(b.avatar) });
+    return jres(r.body, r.status);
+  }
+  const nn = normNick(b.nick);
+  if (!nn) return jres({ err: 'Nick: 2–16 znaków (litery, cyfry, spacja, . _ -).', code: 'nick' }, 400);
+  if (what === 'check') { const r = await playersCall(env, '/check', { n: nn.n }); return jres({ ...r.body, n: nn.n }, r.status); }
+  if (what === 'claim' || what === 'login') {
+    if (!validPin(b.pin)) return jres({ err: 'PIN to 4 cyfry.', code: 'pin' }, 400);
+    const av = Number(b.avatar);
+    const r = await playersCall(env, '/' + what, { n: nn.n, nick: nn.nick, pin: b.pin, avatar: Number.isInteger(av) && av >= 0 && av <= AVATARS ? av : 0 });
+    if (r.status !== 200) return jres(r.body, r.status);
+    return jres({ n: nn.n, nick: r.body.nick, avatar: r.body.avatar, pt: await playerToken(env.PL3Y_TOKEN_SECRET, nn.n, r.body.v) });
+  }
+  if (what === 'reset-request') {
+    const r = await playersCall(env, '/reqreset', { n: nn.n });
+    if (r.status !== 200) return jres(r.body, r.status);
+    if (r.body.send) {
+      const link = await resetLink(env, url.origin, nn.n);
+      await notifyAdmin(env, `🔑 PL3Y: gracz **${r.body.nick.replace(/[*_~`|>]/g, '')}** prosi o nowy PIN.\nReset: ${link}\n(po resecie gracz ustawi nowy PIN przy następnym wejściu)`);
+    }
+    return jres({ ok: true });
+  }
+  return jres({ err: 'Nie znaleziono.' }, 404);
+}
+
+// Strona resetu PIN-u dla admina (link z Discorda).
+async function adminReset(req, env, url) {
+  const page = (title, body) => new Response(`<!doctype html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>PL3Y · reset PIN-u</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0C0B09;color:#EFE8D8;font:16px/1.5 system-ui,sans-serif;padding:24px}main{max-width:380px;text-align:center}h1{color:#C9A85C;font-size:22px}button{margin-top:12px;padding:14px 28px;border:0;border-radius:999px;background:#C9A85C;color:#0C0B09;font:700 16px system-ui;cursor:pointer}</style></head><body><main><h1>${title}</h1>${body}</main></body></html>`,
+    { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex', 'Referrer-Policy': 'no-referrer' } });
+  const t = url.searchParams.get('t') || '';
+  const n = await resetFromLink(env, t);
+  if (!n) return page('Link nieważny', '<p>Link wygasł albo jest uszkodzony. Poproś gracza o nową prośbę.</p>');
+  const info = await playersCall(env, '/check', { n });
+  if (!info.body.exists) return page('Nie ma takiego gracza', '');
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  if (req.method === 'GET') {
+    if (info.body.needPin) return page('Już zresetowany', `<p>Gracz <b>${esc(info.body.nick)}</b> ustawi nowy PIN przy następnym wejściu.</p>`);
+    return page('Reset PIN-u', `<p>Zresetować PIN gracza <b>${esc(info.body.nick)}</b>? Przy następnym wejściu ustawi nowy, a stare zalogowania przestaną działać.</p><form method="post"><button>Resetuj PIN</button></form>`);
+  }
+  const r = await playersCall(env, '/reset', { n });
+  return page('Gotowe ✓', `<p>PIN gracza <b>${esc(r.body.nick || info.body.nick)}</b> zresetowany. Przy następnym wejściu ustawi nowy.</p>`);
+}

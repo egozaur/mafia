@@ -54,6 +54,24 @@ export async function verifyToken(secret, token, now = Date.now()) {
   } catch { return null; }
 }
 
+// Podpisane dane ogólnego przeznaczenia (token gracza, link resetu PIN-u). `purpose` oddziela przestrzenie,
+// więc token jednego rodzaju nie przejdzie jako inny (ani jako token sesji, który ma osobny klucz).
+export async function signData(secret, purpose, obj) {
+  if (!secret) throw new Error('Brak klucza.');
+  const payload = b64u(enc.encode(JSON.stringify(obj)));
+  const sig = await crypto.subtle.sign('HMAC', await hmacKey(secret + '|' + purpose), enc.encode(payload));
+  return payload + '.' + b64u(sig);
+}
+export async function verifyData(secret, purpose, token) {
+  if (!secret || typeof token !== 'string' || token.length > 600) return null;
+  const i = token.indexOf('.');
+  if (i < 1) return null;
+  try {
+    const ok = await crypto.subtle.verify('HMAC', await hmacKey(secret + '|' + purpose), unb64u(token.slice(i + 1)), enc.encode(token.slice(0, i)));
+    return ok ? JSON.parse(new TextDecoder().decode(unb64u(token.slice(0, i)))) : null;
+  } catch { return null; }
+}
+
 export const authMode = env => (['off', 'optional', 'required'].includes(env.AUTH_MODE) ? env.AUTH_MODE : 'required');
 
 // Token z nagłówka Authorization: Bearer … albo z ?tok=… (przeglądarka nie ustawi nagłówka dla WebSocket).

@@ -8,5 +8,6 @@ import { rzTests } from './rozejrzyj.suite.js';
 import { kiTests } from './kurczacze.suite.js';
 import { tjDuoTests } from './tajniacy-duo.suite.js';
 import { authTests } from './auth.suite.js';
+import { plTests } from './players.suite.js';
 
-for (const t of [...tests, ...roomTests, ...tjTests, ...mlTests, ...rzTests, ...kiTests, ...tjDuoTests, ...authTests]) test(t.name, t.fn);
+for (const t of [...tests, ...roomTests, ...tjTests, ...mlTests, ...rzTests, ...kiTests, ...tjDuoTests, ...authTests, ...plTests]) test(t.name, t.fn);
